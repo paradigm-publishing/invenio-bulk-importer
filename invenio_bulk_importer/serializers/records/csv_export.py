@@ -15,25 +15,27 @@ something like ``application/vnd.inveniordm.v1.bulk+csv``.
 
 Example::
 
+    from flask_resources import ResponseHandler
     from invenio_rdm_records.resources.config import record_serializers
 
-    record_serializers['application/vnd.inveniordm.v1.bulk+csv'] = CSVRDMRecordExportSerializer()
-
-    RDM_RECORDS_SERIALIZERS = record_serializers
+    RDM_RECORDS_SERIALIZERS = {
+        **record_serializers,
+        "application/vnd.inveniordm.v1.bulk+csv": ResponseHandler(
+            CSVRDMRecordExportSerializer()
+        ),
+    }
 """
 
 from functools import partial
 
 from flask import current_app
+from flask_resources.serializers import CSVSerializer
 from invenio_base.utils import obj_or_import_string
-from invenio_rdm_records.resources.serializers.csv import (
-    CSVSerializer as _CSVSerializer,
-)
 
 from .utils import flatten_grouped_fields_to_column_title
 
 
-class CSVRDMRecordExportSerializer(_CSVSerializer):
+class CSVRDMRecordExportSerializer(CSVSerializer):
     """CSV serializer compatible with the bulk importer.
 
     It differs from the RDM one just in how it treats list fields. In this case it always
