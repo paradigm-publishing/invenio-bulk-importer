@@ -171,7 +171,12 @@ def test_publish_record_unpublished_in_community(
     assert hit["pids"]["doi"]["provider"] == "external"
     assert not hit["is_published"]
     assert hit["is_draft"]
-    assert hit["status"] == "draft"
+    # Read the draft rather than the search hit: this record has an open
+    # review request, and older invenio-rdm-records indexed the draft before
+    # attaching it, so the indexed status lagged at `draft` while the record
+    # itself already said `draft_with_review`.
+    draft = current_rdm_records_service.read_draft(user_admin.identity, record.id)
+    assert draft.data["status"] == "draft_with_review"
     assert all_drafts.total == 1
 
 

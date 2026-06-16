@@ -1,13 +1,19 @@
 # -*- coding: utf-8 -*-
 #
 # This file is part of Invenio.
-# Copyright (C) 2025 Northwestern University.
+# Copyright (C) 2025 Ubiquity Press.
 #
 # Invenio-RDM-Records is free software; you can redistribute it and/or
 # modify it under the terms of the MIT License; see LICENSE file for more
 # details.
 
-"""Mock test module."""
+"""Mock test module.
+
+Stands in for the ``invenio-app-rdm`` UI blueprints, which are not installed
+here but which link templates in ``invenio-rdm-records`` build URLs against.
+Kept deliberately close to ``invenio-rdm-records``' own copy of this file, so
+that routes it gains on an upgrade can be picked up as a plain diff.
+"""
 
 from flask import Blueprint
 
@@ -19,61 +25,37 @@ def create_invenio_app_rdm_records_blueprint(app):
         __name__,
     )
 
+    @blueprint.route("/records/<pid_value>/files/<path:filename>")
     def record_file_download(pid_value, file_item=None, is_preview=False, **kwargs):
         """Fake record_file_download view function."""
         return "<file content>"
 
+    @blueprint.route("/records/<pid_value>/preview/<path:filename>")
+    def record_file_preview(pid_value, **kwargs):
+        """Fake record_file_preview view function."""
+        return "<file preview>"
+
+    @blueprint.route("/records/<pid_value>")
     def record_detail(pid_value, file_item=None, is_preview=False, **kwargs):
         """Fake record_detail view function."""
         return "<record detail>"
 
+    @blueprint.route("/uploads/<pid_value>")
     def deposit_edit(pid_value, file_item=None, is_preview=False, **kwargs):
         """Fake record_detail view function."""
         return "<deposit edit>"
 
+    @blueprint.route("/records/<pid_value>/latest")
     def record_latest(record=None, **kwargs):
         """Fake record_latest view function."""
         return "<record latest>"
 
+    @blueprint.route("/<any(doi):pid_scheme>/<path:pid_value>")
     def record_from_pid(record=None, **kwargs):
         """Fake record_from_pid view function."""
         return "<record from pid>"
 
-    # Records URL rules
-    blueprint.add_url_rule(
-        "/records/<pid_value>/files/<path:filename>",
-        view_func=record_file_download,
-    )
-
-    blueprint.add_url_rule(
-        "/records/<pid_value>",
-        view_func=record_detail,
-    )
-
-    blueprint.add_url_rule(
-        "/uploads/<pid_value>",
-        view_func=deposit_edit,
-    )
-
-    blueprint.add_url_rule(
-        "/records/<pid_value>/latest",
-        view_func=record_latest,
-    )
-
-    blueprint.add_url_rule(
-        "/<any(doi):pid_scheme>/<path:pid_value>",
-        view_func=record_from_pid,
-    )
-
     return blueprint
-
-
-def verify_access_request_token():
-    """Fake verifiy_access_request_token view function.
-
-    Notice lack of parameters to test querystring injection.
-    """
-    return "<verification>"
 
 
 def create_invenio_app_rdm_requests_blueprint(app):
@@ -83,10 +65,23 @@ def create_invenio_app_rdm_requests_blueprint(app):
         __name__,
     )
 
-    # Requests URL rules
-    blueprint.add_url_rule(
-        "/access/requests/confirm", view_func=verify_access_request_token
-    )
+    @blueprint.route("/access/requests/confirm")
+    def verify_access_request_token(request, **kwargs):
+        """Fake verifiy_access_request_token view function.
+
+        Notice lack of parameters to test querystring injection.
+        """
+        return "<verification>"
+
+    @blueprint.route("/me/requests/<request_pid_value>")
+    def user_dashboard_request_view(request, **kwargs):
+        """Fake user_dashboard_request_view function."""
+        return "<user dashboard request view>"
+
+    @blueprint.route("/access/requests/<request_pid_value>")
+    def read_request(request, **kwargs):
+        """Fake read_request function (could have used the real one but no need atm)."""
+        return "<read request>"
 
     return blueprint
 
@@ -98,10 +93,9 @@ def create_invenio_app_rdm_communities_blueprint(app):
         __name__,
     )
 
+    @blueprint.route("/communities/<pid_value>/")
     def communities_home(pid_value, community, community_ui):
+        """Fake communities_home view function."""
         return "<communities home>"
-
-    # Requests URL rules
-    blueprint.add_url_rule("/communities/<pid_value>/", view_func=communities_home)
 
     return blueprint
