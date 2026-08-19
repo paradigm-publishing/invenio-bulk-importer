@@ -125,14 +125,22 @@ class ImporterTask(Record):
         self.model.started_by_id = user_id
 
     def get_importer_record_info(self) -> dict:
-        """Get information about the importer records related to this task."""
+        """Get information about the importer records related to this task.
+
+        Soft-deleted records are excluded: deleting one nulls its ``json``, so
+        counting them would add a ``None`` status bucket and inflate
+        ``total_records``.
+        """
         record_model_class = self.child_record_model_cls
         records_info = (
             db.session.query(
                 record_model_class.json["status"].label("status"),
                 func.count(record_model_class.id).label("count"),
             )
-            .filter(record_model_class.task_id == self.id)
+            .filter(
+                record_model_class.task_id == self.id,
+                record_model_class.is_deleted.is_(False),
+            )
             .group_by(record_model_class.json["status"])
             .all()
         )

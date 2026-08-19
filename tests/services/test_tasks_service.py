@@ -1,6 +1,7 @@
 from io import BytesIO
 
 import pytest
+from celery.exceptions import Retry
 
 from invenio_bulk_importer.proxies import (
     current_importer_records_service as records_service,
@@ -10,6 +11,7 @@ from invenio_bulk_importer.proxies import (
 )
 from invenio_bulk_importer.records.api import ImporterRecord, ImporterTask
 from invenio_bulk_importer.records.models import ImporterRecordModel, ImporterTaskModel
+from invenio_bulk_importer.services.tasks import finalize_importer_task
 
 
 def test_create_importer_task(
@@ -63,9 +65,10 @@ def test_create_importer_task(
 
 def test_starting_validation(app, db, user_admin, task, community, search_clear):
     """Test starting validation of an importer task."""
-    # Start validation
+    # Start validation. The result item is built before the unit of work
+    # commits, so it shows the status the run just moved into.
     task_result = tasks_service.start_validation(user_admin.identity, task.id)
-    assert task_result.data["status"] == "created"
+    assert task_result.data["status"] == "validating"
 
     record_model_instances = (
         db.session.query(ImporterRecordModel)
@@ -118,3 +121,114 @@ def test_starting_validation(app, db, user_admin, task, community, search_clear)
         "validated": 1,
         "validation failed": 1,
     }
+
+
+def test_revalidating_replaces_records(
+    app, db, user_admin, task, community, search_clear
+):
+    """Validating twice must replace the importer records, not duplicate them."""
+    tasks_service.start_validation(user_admin.identity, task.id)
+    ImporterTask.index.refresh()
+    ImporterRecord.index.refresh()
+
+    first_run = tasks_service.read(user_admin.identity, task.id).data
+    assert first_run["records_status"]["total_records"] == 3
+
+    tasks_service.start_validation(user_admin.identity, task.id)
+    ImporterTask.index.refresh()
+    ImporterRecord.index.refresh()
+
+    live_records = (
+        db.session.query(ImporterRecordModel)
+        .filter(
+            ImporterRecordModel.task_id == task.id,
+            ImporterRecordModel.is_deleted.is_(False),
+        )
+        .all()
+    )
+    assert len(live_records) == 3
+
+    # The records purged by the second run are soft-deleted, so they are still
+    # rows in the table; they must not be counted.
+    second_run = tasks_service.read(user_admin.identity, task.id).data
+    assert second_run["records_status"]["total_records"] == 3
+    assert second_run["status"] == "validated with failures"
+
+
+def _finalize_outside_eager_mode(task_id, phase, **request):
+    """Run ``finalize_importer_task`` as a worker would, not inline.
+
+    Eager mode short-circuits the reschedule, because inline execution means
+    the per-record tasks have already finished, so the polling path needs a
+    non-eager request pushed by hand. ``called_directly`` defaults to True,
+    which makes ``retry()`` raise straight away instead of queueing a real
+    message; pass ``called_directly=False`` to reach the max-retries branch.
+    """
+    finalize_importer_task.push_request(is_eager=False, **request)
+    try:
+        return finalize_importer_task.run(str(task_id), phase=phase)
+    finally:
+        finalize_importer_task.pop_request()
+
+
+def test_finalize_reports_progress_and_keeps_polling(
+    app, db, user_admin, task, community, search_clear
+):
+    """While records are pending, finalize writes progress then reschedules."""
+    tasks_service.start_validation(user_admin.identity, task.id)
+    # Put one record back to `created`, as if its worker had not run yet.
+    pending_id = task._record.get_records()[0]
+    pending = records_service.read(user_admin.identity, pending_id)
+    data = records_service.get_current_task_data(pending._record)
+    data["status"] = "created"
+    records_service.update(user_admin.identity, data=data, id_=pending_id)
+    ImporterRecord.index.refresh()
+
+    with pytest.raises(Retry):
+        _finalize_outside_eager_mode(task.id, "validate")
+
+    # Progress was written before rescheduling, rather than staying silent.
+    refreshed = tasks_service.read(user_admin.identity, task.id).data
+    assert refreshed["status"] == "validating"
+    assert refreshed["records_status"]["created"] == 1
+    assert refreshed["records_status"]["total_records"] == 3
+
+
+def test_finalize_stops_once_nothing_is_pending(
+    app, db, user_admin, task, community, search_clear
+):
+    """With every record processed, finalize writes the state and stops."""
+    tasks_service.start_validation(user_admin.identity, task.id)
+    ImporterRecord.index.refresh()
+
+    # No exception: nothing left to wait for.
+    _finalize_outside_eager_mode(task.id, "validate")
+
+    refreshed = tasks_service.read(user_admin.identity, task.id).data
+    assert refreshed["status"] == "validated with failures"
+    assert "created" not in refreshed["records_status"]
+
+
+def test_finalize_gives_up_after_max_polls(
+    app, db, user_admin, task, community, search_clear
+):
+    """A run that never completes stops being followed, keeping its last status."""
+    tasks_service.start_validation(user_admin.identity, task.id)
+    pending_id = task._record.get_records()[0]
+    pending = records_service.read(user_admin.identity, pending_id)
+    data = records_service.get_current_task_data(pending._record)
+    data["status"] = "created"
+    records_service.update(user_admin.identity, data=data, id_=pending_id)
+    ImporterRecord.index.refresh()
+
+    # Exhausted retries must not surface as a task failure.
+    _finalize_outside_eager_mode(
+        task.id,
+        "validate",
+        called_directly=False,
+        retries=app.config["BULK_IMPORTER_FINALIZE_MAX_POLLS"] + 1,
+    )
+
+    refreshed = tasks_service.read(user_admin.identity, task.id).data
+    assert refreshed["status"] == "validating"
+    assert refreshed["records_status"]["created"] == 1

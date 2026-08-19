@@ -122,3 +122,36 @@ def test_calculate_task_state():
         TaskStateCalculator.calculate_task_state(record_states)
         == ImporterTaskState.SUCCESS.value
     )
+
+
+def test_calculate_task_state_part_way_through_validation():
+    """A run part-way through validation reports `validating`, not `created`.
+
+    The branch used to be guarded by ``svf == 0 or vf == 0 or validated == 0``,
+    which is true unless all three are non-zero, so every partial combination
+    below fell through to `created` and the task looked like it had not
+    started.
+    """
+    from invenio_bulk_importer.services.states import TaskStateCalculator
+
+    partial_runs = (
+        {"total_records": 5, "created": 2, "validated": 3},
+        {"total_records": 5, "created": 4, "validation failed": 1},
+        {"total_records": 5, "created": 4, "serializer validation failed": 1},
+        {"total_records": 5, "created": 1, "validated": 3, "validation failed": 1},
+    )
+    for record_states in partial_runs:
+        assert (
+            TaskStateCalculator.calculate_task_state(record_states)
+            == ImporterTaskState.VALIDATING.value
+        ), record_states
+
+
+def test_calculate_task_state_before_any_validation():
+    """Until a record has been through validation the task is still `created`."""
+    from invenio_bulk_importer.services.states import TaskStateCalculator
+
+    assert (
+        TaskStateCalculator.calculate_task_state({"total_records": 5, "created": 5})
+        == ImporterTaskState.CREATED.value
+    )

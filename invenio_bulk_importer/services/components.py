@@ -21,12 +21,20 @@ class ImporterTaskServiceComponent(ServiceComponent):
         """Create a new importer task."""
         record.update_start_by_id(identity.user.id)
 
-    def metadata_file_update(self, identity, *, id_, record, **kwargs):
-        """Clean previous tasks to avoid duplicates after uploading a metadata file."""
+    def _purge_importer_records(self, identity, record):
+        """Delete the importer records currently attached to the task."""
         for importer_record_id in record.get_records():
             current_importer_records_service.delete(
                 identity, id_=importer_record_id, uow=self.uow
             )
+
+    def metadata_file_update(self, identity, *, id_, record, **kwargs):
+        """Clean previous tasks to avoid duplicates after uploading a metadata file."""
+        self._purge_importer_records(identity, record)
+
+    def validation_start(self, identity, *, record, **kwargs):
+        """Clean previous records so re-validating replaces them, not duplicates them."""
+        self._purge_importer_records(identity, record)
 
 
 class ImporterRecordServiceComponent(ServiceComponent):

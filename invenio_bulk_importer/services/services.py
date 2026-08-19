@@ -15,6 +15,7 @@ from flask import current_app
 from invenio_records_resources.services.records import RecordService
 from invenio_records_resources.services.uow import (
     RecordCommitOp,
+    TaskOp,
     unit_of_work,
 )
 
@@ -137,7 +138,16 @@ class ImporterTaskService(BulkImporterMixin, RecordService):
             raise ImporterTaskNoReadyError(
                 "Serializer and record_type must be set for validation."
             )
-        valid_importer_file_data.delay(str(record.id))
+        self.run_components("validation_start", identity, record=record, uow=uow)
+
+        task_data = self.get_current_task_data(record)
+        task_data["status"] = ImporterTaskState.VALIDATING.value
+        task_data.pop("records_status", None)
+        self._update_task_metadata(identity, record, task_data, uow=uow)
+
+        # Dispatch after commit, so the worker cannot observe the records this
+        # transaction just deleted.
+        uow.register(TaskOp(valid_importer_file_data, str(record.id)))
 
         return self.result_item(
             self,
@@ -198,8 +208,13 @@ class ImporterTaskService(BulkImporterMixin, RecordService):
         # Check task is ready to create records.
         if record["status"] != ImporterTaskState.VALIDATED.value:
             raise ImporterTaskNoReadyError("Importer Task in wrong status to proceed.")
-        # Start loading the
-        run_transformed_records.delay(str(record.id))
+
+        # Moving off `validated` also stops a second Load running concurrently.
+        task_data = self.get_current_task_data(record)
+        task_data["status"] = ImporterTaskState.IMPORTING.value
+        self._update_task_metadata(identity, record, task_data, uow=uow)
+
+        uow.register(TaskOp(run_transformed_records, str(record.id)))
         return self.result_item(
             self,
             identity,

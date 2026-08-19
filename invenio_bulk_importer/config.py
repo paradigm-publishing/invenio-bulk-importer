@@ -59,6 +59,22 @@ Example::
     }
 """
 
+BULK_IMPORTER_FINALIZE_POLL_SECONDS = 15
+"""Seconds between task status refreshes while records are still processing.
+
+``finalize_importer_task`` reschedules itself at this interval until every
+record has been processed, rewriting the task status on each pass. It doubles
+as the progress cadence, so keep it short enough to look responsive.
+"""
+
+BULK_IMPORTER_FINALIZE_MAX_POLLS = 480
+"""How many times ``finalize_importer_task`` may reschedule itself.
+
+Together with ``BULK_IMPORTER_FINALIZE_POLL_SECONDS`` this bounds how long a
+run may take before the task stops being followed. Beyond it, the last status
+written stands. The default allows two hours for slow imports with downloads.
+"""
+
 BULK_IMPORTER_RECORD_TYPES = {
     "record": {
         "class": RDMRecord,

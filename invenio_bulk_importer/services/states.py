@@ -71,20 +71,16 @@ class TaskStateCalculator:
             return ImporterTaskState.CREATED.value
 
         if created_count > 0 and (
-            serializer_validation_failed_count == 0
-            or validation_failed_count == 0
-            or validated_count == 0
-        ):
-            # If there are records that are created but not yet validated or imported
-            return ImporterTaskState.CREATED.value
-
-        if created_count > 0 and (
             serializer_validation_failed_count > 0
             or validation_failed_count > 0
             or validated_count > 0
         ):
-            # If there are records that are created but not yet validated or imported
+            # Some records have been through validation, others have not yet.
             return ImporterTaskState.VALIDATING.value
+
+        if created_count > 0:
+            # Nothing has been validated yet.
+            return ImporterTaskState.CREATED.value
 
         # Check for validation failures
         if validation_failed_count > 0 or serializer_validation_failed_count > 0:

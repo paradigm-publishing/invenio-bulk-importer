@@ -13,6 +13,7 @@ import uuid
 from copy import deepcopy
 
 from celery import shared_task
+from celery.exceptions import MaxRetriesExceededError
 from flask import current_app
 from invenio_base.utils import obj_or_import_string
 from invenio_records_resources.tasks import system_identity
@@ -24,6 +25,18 @@ from invenio_bulk_importer.services.states import (
 
 from ..proxies import current_importer_records_service as records_service
 from ..proxies import current_importer_tasks_service as tasks_service
+
+VALIDATE_PHASE = "validate"
+"""Follow the validation run."""
+
+IMPORT_PHASE = "import"
+"""Follow the record creation run."""
+
+PENDING_RECORD_STATES = {
+    VALIDATE_PHASE: [ImporterRecordState.CREATED.value],
+    IMPORT_PHASE: [ImporterRecordState.VALIDATED.value],
+}
+"""Record states still awaiting work, per phase."""
 
 DEFAULT_IMPORER_RECORD_DICT = dict(
     status=ImporterRecordState.CREATED.value,
@@ -108,8 +121,8 @@ def run_transformed_records(task_id_str: str):
                 record_id_str=record_id_str,
                 task_id_str=task_id_str,
             )
-        # Update task status to indicate that the file has been processed
-        finalize_importer_task.delay(task_id_str)
+        # Follow the run, refreshing the task status until every record is done.
+        finalize_importer_task.delay(task_id_str, phase=IMPORT_PHASE)
     except Exception as e:
         traceback.print_exc()
         print(f"Error run_transformed_records for task: {task_id_str}:- {e}")
@@ -192,8 +205,8 @@ def valid_importer_file_data(task_id_str: str):
                 record_id_str=str(importer_record.id),
                 task_id_str=task_id_str,
             )
-        # Update task status to indicate that the file has been processed
-        finalize_importer_task.delay(task_id_str)
+        # Follow the run, refreshing the task status until every record is done.
+        finalize_importer_task.delay(task_id_str, phase=VALIDATE_PHASE)
     except Exception as e:
         traceback.print_exc()
         print(f"Error loading importer file for task: {task_id_str}:- {e}")
@@ -201,9 +214,20 @@ def valid_importer_file_data(task_id_str: str):
         raise e
 
 
-@shared_task(ignore_result=True)
-def finalize_importer_task(task_id_str: str):
-    """Finalize the importer task after all records have been processed."""
+@shared_task(bind=True, ignore_result=True)
+def finalize_importer_task(self, task_id_str: str, phase: str = VALIDATE_PHASE):
+    """Refresh the importer task status, and follow the run until it is done.
+
+    Runs on every pass rather than only at the end: the status and record
+    counts are rewritten each time, so a long import reports progress instead
+    of sitting on its starting status. While records are still pending the
+    task reschedules itself, which is what makes it correct under real workers
+    -- it used to be queued alongside the per-record tasks and so ran before
+    any of them had finished.
+
+    :param task_id_str: Importer task id.
+    :param phase: Which run to follow, ``validate`` or ``import``.
+    """
     try:
         task, _, _ = _get_importer_task_classes(task_id_str)
         # Get all records for this task
@@ -214,7 +238,27 @@ def finalize_importer_task(task_id_str: str):
         # Calculate the task state based on the records status
         task_data["status"] = TaskStateCalculator.calculate_task_state(records_status)
         tasks_service.update(system_identity, data=task_data, id_=task.id)
+        pending = any(
+            records_status.get(state) for state in PENDING_RECORD_STATES[phase]
+        )
     except Exception as e:
         traceback.print_exc()
         print(f"Error finalizing importer task: {e}")
         raise e
+
+    if not pending or self.request.is_eager:
+        # Under eager execution the per-record tasks have already run inline,
+        # so anything still pending is stuck; retrying would just spin.
+        return
+    # Raised outside the block above: `Retry` is an `Exception`, so catching it
+    # there would turn a normal reschedule into a reported failure.
+    try:
+        raise self.retry(
+            countdown=current_app.config["BULK_IMPORTER_FINALIZE_POLL_SECONDS"],
+            max_retries=current_app.config["BULK_IMPORTER_FINALIZE_MAX_POLLS"],
+        )
+    except MaxRetriesExceededError:
+        # Stop following the run. The status just written stands.
+        print(
+            f"Giving up following importer task {task_id_str}, records still pending."
+        )
