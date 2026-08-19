@@ -200,16 +200,19 @@ class FileMixin:
         """Check if the URL file is accessible."""
         try:
             response = requests.head(file, timeout=10)
-            if response.status_code >= 400:
-                self._add_error(
-                    dict(
-                        type="file_not_accessible",
-                        loc="files",
-                        msg=f"Error accessing URL file '{file}' returned status code {response.status_code}.",
-                    )
+            response.raise_for_status()
+        except requests.HTTPError as e:
+            # Reported separately from the transport errors below, so the
+            # status code is stated plainly rather than through requests'
+            # own wording.
+            self._add_error(
+                dict(
+                    type="file_not_accessible",
+                    loc="files",
+                    msg=f"Error accessing URL file '{file}' returned status code {e.response.status_code}.",
                 )
-            # Get file size from Content-Length header
-            self._add_validated_file(file, response.headers.get("Content-Length"))
+            )
+            return
         except Exception as e:
             self._add_error(
                 dict(
@@ -218,6 +221,9 @@ class FileMixin:
                     msg=f"Error accessing URL file '{file}': {str(e)}",
                 )
             )
+            return
+        # Get file size from Content-Length header
+        self._add_validated_file(file, response.headers.get("Content-Length"))
 
     def _check_gs_file_accessibility(self, file: str):
         """Check if the Google Cloud Storage file is accessible."""

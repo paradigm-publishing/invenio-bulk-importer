@@ -120,6 +120,25 @@ def test_files_verification_url_failures(rdm_record_instance):
             msg=f"Error accessing URL file '{URL_FILE_MISSING}' returned status code 404.",
         )
     ]
+    # An unreachable file must not be carried forward as one to upload.
+    assert rdm_record_instance._validated_files == []
+
+
+def test_files_verification_url_transport_failure(rdm_record_instance):
+    """A URL that cannot be reached at all is reported, and not validated."""
+    files = ["https://unreachable.test/paper.pdf"]
+
+    rdm_record_instance._verify_files_accessible(files)
+
+    assert rdm_record_instance.is_successful is False
+    (error,) = rdm_record_instance.errors
+    assert error["type"] == "file_not_accessible"
+    assert error["loc"] == "files"
+    # Transport errors keep requests' own wording, unlike HTTP statuses.
+    assert error["msg"].startswith(
+        "Error accessing URL file 'https://unreachable.test/paper.pdf':"
+    )
+    assert rdm_record_instance._validated_files == []
 
 
 def test_community_verification(rdm_record_instance, community):
