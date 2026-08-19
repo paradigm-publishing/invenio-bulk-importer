@@ -339,6 +339,14 @@ nitpick_ignore = [
     ("py:class", "flask_resources.serializers.csv.CSVSerializer"),
     # Internal base class, not part of the exposed API.
     ("py:class", "invenio_bulk_importer.serializers.base.CSVSerializer"),
+    # Documenting a pydantic field (i.e. giving it a docstring) makes autodoc
+    # render its full annotation and default, which drags in pydantic
+    # internals and the ``BeforeValidator`` callables from our ``Annotated``
+    # aliases. None of these are classes intersphinx can resolve.
+    ("py:class", "FieldInfo"),
+    ("py:class", "PydanticUndefined"),
+    ("py:class", "NoneType"),
+    ("py:class", "invenio_bulk_importer.serializers.records.csv.ensure_new_line_list"),
 ]
 
 # Sphinx mis-tokenizes PEP 585 generics like ``dict[str, Any]`` in some

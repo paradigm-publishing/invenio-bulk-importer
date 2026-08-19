@@ -164,11 +164,18 @@ class CSVRDMRecordExportSerializer(CSVSerializer):
                         "identifier"
                     ]
 
-                if role := person_or_org.get("role"):
+                if role := c.get("role"):
                     flatten_creator["role"] = {"id": role["id"]}
 
-                if affiliations := person_or_org.get("affiliations"):
-                    flatten_creator["affiliations"] = affiliations
+                if affiliations := c.get("affiliations"):
+                    # One column per part, ";"-separated, positionally paired
+                    # the way the importer reads them back.
+                    aff_ids = [a.get("id", "") for a in affiliations]
+                    aff_names = [a.get("name", "") for a in affiliations]
+                    if any(aff_ids):
+                        flatten_creator["affiliations.id"] = ";".join(aff_ids)
+                    if any(aff_names):
+                        flatten_creator["affiliations.name"] = ";".join(aff_names)
 
                 res.append(flatten_creator)
 

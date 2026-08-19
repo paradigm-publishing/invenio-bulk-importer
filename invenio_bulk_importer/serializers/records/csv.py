@@ -492,7 +492,10 @@ class CSVRecordSchema(BaseModel):
             "communities", "community_slugs", "collections", "collection_slugs"
         )
     )
-    files: NewlineList = Field(alias="filenames")
+    files: NewlineList = Field(
+        validation_alias=AliasChoices("filenames", "files"),
+    )
+    """Accepts ``files`` as well, which is the column the CSV exporter emits."""
     access: dict[str, str | dict[str, str | None]]
     custom_fields: dict[str, str | dict | list] = Field(default_factory=dict)
     metadata: MetadataSchema

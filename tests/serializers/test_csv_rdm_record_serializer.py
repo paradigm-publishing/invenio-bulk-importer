@@ -396,3 +396,15 @@ def test_schema_for_delete_missing_id(running_app):
         }
     ]
     assert result is None
+
+
+def test_record_transform_accepts_exported_files_column(running_app, csv_rdm_record):
+    """The exporter's ``files`` column round-trips back through the importer."""
+    serializer = CSVRDMRecordSerializer()
+    exported = deepcopy(csv_rdm_record)
+    exported["files"] = exported.pop("filenames")
+
+    result, errors = serializer.transform(exported)
+
+    assert errors is None
+    assert result["files"] == ["treatment.pdf", "image1.png"]

@@ -5,6 +5,7 @@ import io
 
 import pytest
 
+from invenio_bulk_importer.serializers.records.csv import CSVRDMRecordSerializer
 from invenio_bulk_importer.serializers.records.csv_export import (
     CSVRDMRecordExportSerializer,
 )
@@ -37,11 +38,16 @@ def test_column_set(serialized_row):
         "access.record",
         "additional_descriptions.methods.eng",
         "additional_titles.subtitle.eng",
+        "contributors.affiliations.id",
+        "contributors.affiliations.name",
         "contributors.family_name",
         "contributors.given_name",
         "contributors.identifiers.orcid",
         "contributors.name",
+        "contributors.role.id",
         "contributors.type",
+        "creators.affiliations.id",
+        "creators.affiliations.name",
         "creators.family_name",
         "creators.given_name",
         "creators.identifiers.orcid",
@@ -123,6 +129,15 @@ def test_contributors_flatten_person_or_org(serialized_row):
     """Contributors flatten the same way as creators."""
     assert _lines(serialized_row["contributors.family_name"]) == ["Nielsen", "Dirk"]
     assert _lines(serialized_row["contributors.given_name"]) == ["Lars Holm", "Dirkin"]
+
+
+def test_roles_and_affiliations_are_exported(serialized_row):
+    """Contributors and creators role and affiliations are properly exported."""
+    assert _lines(serialized_row["contributors.role.id"]) == ["other", "other"]
+    # Multiple affiliations for one creator are ";"-separated, and the id and
+    # name columns stay positionally paired for the importer.
+    assert _lines(serialized_row["creators.affiliations.name"])[0] == "CERN;free-text"
+    assert _lines(serialized_row["creators.affiliations.id"])[0] == "cern;"
 
 
 def test_metadata_scalars(serialized_row):
@@ -255,3 +270,16 @@ def test_custom_fields_fallback_when_no_config_entry(
         {"unknown:field": {"a": "1", "b": "2"}}
     )
     assert result == {"unknown:field.a": "1", "unknown:field.b": "2"}
+
+
+def test_exported_row_reimports_with_its_files(serialized_row):
+    """An exported row must import back with its files still attached.
+
+    Each serializer was only ever tested on its own, so the exporter's
+    ``files`` column and the importer's ``filenames`` alias drifted apart and
+    exported CSVs re-imported as metadata-only records.
+    """
+    result, errors = CSVRDMRecordSerializer().transform(dict(serialized_row))
+
+    assert errors is None
+    assert result["files"] == ["test.txt"]
