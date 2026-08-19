@@ -9,8 +9,9 @@
 """Rdm specific record resources."""
 
 from flask import current_app
+from invenio_db import db
 from invenio_rdm_records.proxies import current_rdm_records_service
-from invenio_records_resources.services.uow import unit_of_work
+from invenio_records_resources.services.uow import UnitOfWork
 from invenio_records_resources.tasks import system_identity
 from invenio_requests.proxies import current_requests_service
 from marshmallow.exceptions import ValidationError as MarshmallowValidationError
@@ -142,23 +143,36 @@ class RDMRecord(
             self._record = self._serializer_record_data
         return self.is_successful
 
-    @unit_of_work()
-    def run(self, mode: str = "import", uow=None) -> dict | None:
+    def run(self, mode: str = "import") -> dict | None:
         """Run the record creation/edit or delete process.
 
         At this point a importer record must be validated to continue.
 
-        Returns:
-            dict: The created record.
+        The whole run is one unit of work: on failure it is rolled back, so a
+        partially imported record (created, but missing its files or never
+        published) is never left behind. Errors are reported on
+        :attr:`errors` instead, for the caller to persist.
+
+        :param mode: Either ``import`` or ``delete``.
+        :return: The created, updated or deleted record, or ``None`` when the
+            run did not complete.
         """
         if not self._importer_record or self._importer_record["status"] != "validated":
             # Cannot run record creation as not in correct status.
             return
         # Run create, edit or delete
         try:
-            if mode == "import":  # Create the RDM record using the validated data.
-                return self._upsert_record(self._importer_record, uow)
-            return self._delete_record(self._importer_record, uow)  # Delete record.
+            # NOTE: not the `unit_of_work()` decorator, as that commits
+            # whatever was done so far whenever an exception is swallowed
+            # rather than re-raised. Exiting the context manager with an
+            # exception in flight rolls back instead.
+            with UnitOfWork(db.session) as uow:
+                if mode == "import":  # Create the RDM record using the validated data.
+                    record_item = self._upsert_record(self._importer_record, uow)
+                else:  # Delete record.
+                    record_item = self._delete_record(self._importer_record, uow)
+                uow.commit()
+            return record_item
         except Exception:
             if not self.errors:
                 # If no errors were added, log the traceback as an error.
@@ -193,7 +207,7 @@ class RDMRecord(
             )
             current_app.logger.exception("Error creating a new record.")
             raise
-        self._add_files_to_record(self._importer_record, record_item)
+        self._add_files_to_record(self._importer_record, record_item, uow)
         self._publish_record(record_item, uow)
         return record_item
 
@@ -224,7 +238,7 @@ class RDMRecord(
             data = importer_record["transformed_data"]
             tombstone_info = dict(note=data.get("reason", "deleted by bulk importer."))
             record_item = current_rdm_records_service.delete_record(
-                system_identity, existing_record_id, tombstone_info
+                system_identity, existing_record_id, tombstone_info, uow=uow
             )
         except Exception as e:
             self._add_error(
@@ -343,31 +357,6 @@ class RDMRecord(
                 [{"key": f["key"]} for f in files],
                 uow=uow,
             )
-            for file in files:
-                file_key = file["key"]
-                try:
-                    file_service.set_file_content(
-                        system_identity,
-                        record_item.id,
-                        file_key,
-                        self._get_stream_for_file_content(file),
-                        file["size"],
-                        uow=uow,
-                    )
-                    # Commit the file to the record
-                    file_service.commit_file(
-                        system_identity, record_item.id, file_key, uow=uow
-                    )
-                except Exception as e:
-                    self._add_error(
-                        dict(
-                            type="file_add_error",
-                            loc="files",
-                            msg=f"Error uploading and commiting '{file_key}' to record '{record_item.id}': {str(e)}",
-                        )
-                    )
-                    current_app.logger.exception("Error adding a file to the record.")
-                    raise
         except Exception as e:
             self._add_error(
                 dict(
@@ -378,6 +367,31 @@ class RDMRecord(
             )
             current_app.logger.exception("Error adding files to the record.")
             raise
+        for file in files:
+            file_key = file["key"]
+            try:
+                file_service.set_file_content(
+                    system_identity,
+                    record_item.id,
+                    file_key,
+                    self._get_stream_for_file_content(file),
+                    file["size"],
+                    uow=uow,
+                )
+                # Commit the file to the record
+                file_service.commit_file(
+                    system_identity, record_item.id, file_key, uow=uow
+                )
+            except Exception as e:
+                self._add_error(
+                    dict(
+                        type="file_add_error",
+                        loc="files",
+                        msg=f"Error uploading and commiting '{file_key}' to record '{record_item.id}': {str(e)}",
+                    )
+                )
+                current_app.logger.exception("Error adding a file to the record.")
+                raise
 
     def _add_record_to_communities(self, community_uuids: dict, record, uow) -> None:
         """Add the record to the specified community.
