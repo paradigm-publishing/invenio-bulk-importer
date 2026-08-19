@@ -76,7 +76,7 @@ invenio_bulk_importer_records_api = "invenio_bulk_importer.views:create_records_
 invenio_bulk_importer_ext = "invenio_bulk_importer.views:blueprint"
 
 [project.entry-points."invenio_celery.tasks"]
-invenio_bulk_importer = "invenio_bulk_importer.tasks"
+invenio_bulk_importer = "invenio_bulk_importer.services.tasks"
 
 [project.entry-points."invenio_db.alembic"]
 invenio_bulk_importer = "invenio_bulk_importer:alembic"
