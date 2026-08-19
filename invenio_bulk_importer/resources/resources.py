@@ -76,7 +76,9 @@ class ImporterTaskResource(RecordResource):
             g.identity,
             ep_pid,
         )
-        return item.send_file(restricted=False)
+        # The metadata file is user-uploaded and admin-only: keep it out of
+        # shared caches and make the browser download it rather than render it.
+        return item.send_file(restricted=True, as_attachment=True)
 
     @request_view_args
     @request_stream

@@ -154,3 +154,10 @@ def delete_task(
         identity=user_admin.identity,
         delete=True,
     )
+
+
+@pytest.fixture()
+def plain_user_client(client, users, app, db):
+    """Log in a user who holds no administration role."""
+    login_user_via_session(client, email=users["user_moderator"].user.email)
+    return client
