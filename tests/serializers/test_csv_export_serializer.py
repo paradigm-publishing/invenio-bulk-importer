@@ -283,3 +283,86 @@ def test_exported_row_reimports_with_its_files(serialized_row):
 
     assert errors is None
     assert result["files"] == ["test.txt"]
+
+
+def test_exported_row_reimports_without_losing_metadata(serialized_row):
+    """The whole row must survive the trip, not just the files column.
+
+    Asserting one field at a time is how the ``files``/``filenames`` and the
+    role/affiliation losses both went unnoticed: each serializer was tested
+    on its own, so a column either side could drift and the suite stayed
+    green. Values are stated literally rather than compared against
+    ``full_record_dict``, which the exporter mutates as it flattens.
+    """
+    result, errors = CSVRDMRecordSerializer().transform(dict(serialized_row))
+    assert errors is None
+    metadata = result["metadata"]
+
+    assert metadata["title"] == "InvenioRDM"
+    assert metadata["publisher"] == "InvenioRDM"
+    assert metadata["publication_date"] == "2018/2020-09"
+    assert metadata["version"] == "v1.0"
+    assert metadata["resource_type"] == {"id": "image-photo"}
+    assert metadata["languages"] == [{"id": "dan"}, {"id": "eng"}]
+
+    # Creators and contributors keep their person, identifiers, affiliations
+    # and -- for contributors, where it is mandatory -- their role.
+    creator, second_creator = metadata["creators"]
+    assert creator["person_or_org"]["name"] == "Nielsen, Lars Holm"
+    assert creator["person_or_org"]["identifiers"] == [
+        {"identifier": "0000-0001-8135-3489", "scheme": "orcid"}
+    ]
+    assert creator["affiliations"] == [
+        {"id": "cern", "name": "CERN"},
+        {"name": "free-text"},
+    ]
+    assert second_creator["person_or_org"]["name"] == "Tom, Blabin"
+
+    contributor = metadata["contributors"][0]
+    assert contributor["role"] == {"id": "other"}
+    assert contributor["affiliations"] == [
+        {"id": "cern", "name": "CERN"},
+        {"name": "TU Wien"},
+    ]
+
+    assert metadata["dates"] == [
+        {"date": "1939/1945", "description": "A date", "type": {"id": "other"}}
+    ]
+    assert metadata["identifiers"] == [
+        {"identifier": "1924MNRAS..84..308E", "scheme": "ads"}
+    ]
+    assert metadata["related_identifiers"] == [
+        {
+            "identifier": "10.1234/foo.bar",
+            "scheme": "doi",
+            "relation_type": {"id": "iscitedby"},
+            "resource_type": {"id": "dataset"},
+        }
+    ]
+    assert metadata["funding"] == [
+        {
+            "funder": {"id": "00k4n6c32", "name": "European Commission"},
+            "award": {
+                "id": "00k4n6c32::101122956",
+                "number": "111023",
+                "title": {
+                    "en": "Launching of the research program on meaning processing"
+                },
+            },
+        }
+    ]
+    # Vocabulary subjects come back with their id; free text stays free text.
+    assert metadata["subjects"] == [
+        {"subject": "custom"},
+        {"id": "http://id.nlm.nih.gov/mesh/A-D000007", "subject": "Abdominal Injuries"},
+    ]
+    assert [r.get("id") or r["title"] for r in metadata["rights"]] == [
+        {"en": "A custom license"},
+        "cc-by-4.0",
+    ]
+    assert metadata["locations"]["features"][0]["place"] == "test location place"
+
+    assert result["access"]["record"] == "public"
+    assert result["access"]["files"] == "restricted"
+    assert result["access"]["embargo"]["until"] == "2131-01-01"
+    assert result["custom_fields"]["imprint:imprint"]["isbn"] == "978-3-16-148410-0"
