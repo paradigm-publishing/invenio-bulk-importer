@@ -20,6 +20,7 @@ from invenio_records_resources.tasks import system_identity
 
 from invenio_bulk_importer.services.states import (
     ImporterRecordState,
+    ImporterTaskState,
     TaskStateCalculator,
 )
 
@@ -37,6 +38,13 @@ PENDING_RECORD_STATES = {
     IMPORT_PHASE: [ImporterRecordState.VALIDATED.value],
 }
 """Record states still awaiting work, per phase."""
+
+FAILED_RECORD_STATES = {
+    VALIDATE_PHASE: ImporterRecordState.VALIDATION_FAILED.value,
+    IMPORT_PHASE: ImporterRecordState.IMPORT_FAILED.value,
+}
+"""State to leave a record in when its task raises, per phase."""
+
 
 DEFAULT_IMPORER_RECORD_DICT = dict(
     status=ImporterRecordState.CREATED.value,
@@ -76,6 +84,74 @@ def _get_importer_task_classes(task_id_str: str):
     return task, record_type_cls, serializer_cls()
 
 
+def _abandon_importer_task(task_id_str: str, phase: str) -> None:
+    """Mark a task damaged after its records stopped making progress.
+
+    Reached only when records are still pending long past any reasonable run
+    time, which means the workers holding them are gone. The calculated
+    status would say ``validating`` or ``importing``, so it is overridden
+    here: the run is over, and it did not finish.
+
+    :param task_id_str: Importer task id.
+    :param phase: Either ``validate`` or ``import``.
+    """
+    try:
+        task, _, _ = _get_importer_task_classes(task_id_str)
+        task_data = tasks_service.get_current_task_data(task)
+        task_data["status"] = ImporterTaskState.DAMAGED.value
+        tasks_service.update(system_identity, data=task_data, id_=task.id)
+        # The reason only goes to the log: the task schema has no message
+        # field, and its mapping is strict.
+        current_app.logger.warning(
+            "Importer task %s marked damaged: records were still pending in "
+            "the %s run after %s checks, so the workers holding them are gone.",
+            task_id_str,
+            phase,
+            current_app.config["BULK_IMPORTER_FINALIZE_MAX_POLLS"],
+        )
+    except Exception:
+        current_app.logger.exception(
+            "Could not mark importer task %s as damaged.", task_id_str
+        )
+
+
+def _mark_record_failed(record_id_str: str, phase: str, exc: Exception) -> None:
+    """Leave a record in a terminal state after its task raised.
+
+    Without this a crashing worker leaves the record on the state it started
+    from, which the finaliser reads as "still working" -- so the run is
+    followed until the poll limit and the task never reaches a conclusion.
+
+    Best effort by design: it runs while an exception is already in flight,
+    and must not replace it with one of its own.
+
+    :param record_id_str: Importer record id.
+    :param phase: Either ``validate`` or ``import``.
+    :param exc: The exception that ended the task.
+    """
+    try:
+        record = _get_record_from_uuid_str(record_id_str, records_service)
+        if record is None:
+            return
+        record_dict = records_service.get_current_task_data(record)
+        record_dict["status"] = FAILED_RECORD_STATES[phase]
+        record_dict["errors"] = [
+            *record_dict.get("errors", []),
+            dict(
+                type="unexpected_error",
+                loc=phase,
+                msg=f"{type(exc).__name__}: {exc}",
+            ),
+        ]
+        records_service.update(system_identity, data=record_dict, id_=record.id)
+    except Exception:
+        # The record may be gone, or the session unusable. The original
+        # exception is the one worth surfacing.
+        current_app.logger.exception(
+            "Could not record the failure of importer record %s.", record_id_str
+        )
+
+
 @shared_task(ignore_result=True)
 def run_transformed_record(record_id_str: str, task_id_str: str):
     """Run the transformed importer record for a given record ID and task ID to create a new record."""
@@ -106,7 +182,7 @@ def run_transformed_record(record_id_str: str, task_id_str: str):
         print(
             f"Error run_transformed_record for record/task: {record_id_str}/{task_id_str}:- {e}"
         )
-        # Handle error appropriately, e.g., log it or update task status
+        _mark_record_failed(record_id_str, IMPORT_PHASE, e)
         raise e
 
 
@@ -180,7 +256,7 @@ def validate_serialized_data(record_id_str: str, task_id_str: str):
         print(
             f"Error validate_serialized_data for record/task: {record_id_str}/{task_id_str}:- {e}"
         )
-        # Handle error appropriately, e.g., log it or update task status
+        _mark_record_failed(record_id_str, VALIDATE_PHASE, e)
         raise e
 
 
@@ -258,7 +334,7 @@ def finalize_importer_task(self, task_id_str: str, phase: str = VALIDATE_PHASE):
             max_retries=current_app.config["BULK_IMPORTER_FINALIZE_MAX_POLLS"],
         )
     except MaxRetriesExceededError:
-        # Stop following the run. The status just written stands.
-        print(
-            f"Giving up following importer task {task_id_str}, records still pending."
-        )
+        # Records are still pending well past any reasonable run time, so the
+        # workers holding them are gone. Leaving the calculated status would
+        # read as "still working" forever, so end on a terminal one instead.
+        _abandon_importer_task(task_id_str, phase)

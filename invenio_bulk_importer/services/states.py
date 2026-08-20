@@ -36,6 +36,14 @@ class ImporterTaskState(Enum):
     SUCCESS = "success"
     DAMAGED = "damaged"
 
+    @classmethod
+    def running_states(cls) -> list[str]:
+        """States in which workers may still be using the task's records.
+
+        :return: The task status values that mean a run is in progress.
+        """
+        return [cls.VALIDATING.value, cls.IMPORTING.value]
+
 
 class TaskStateCalculator:
     """Calculate task state based on record states."""

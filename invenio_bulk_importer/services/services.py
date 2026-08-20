@@ -138,6 +138,13 @@ class ImporterTaskService(BulkImporterMixin, RecordService):
             raise ImporterTaskNoReadyError(
                 "Serializer and record_type must be set for validation."
             )
+        if record["status"] in ImporterTaskState.running_states():
+            # Validating clears the task's records, so it must not run while
+            # workers are still using them, importing especially, where
+            # records could already have been created in the repository.
+            raise ImporterTaskNoReadyError(
+                "Importer Task is already running, wait for it to finish."
+            )
         self.run_components("validation_start", identity, record=record, uow=uow)
 
         task_data = self.get_current_task_data(record)

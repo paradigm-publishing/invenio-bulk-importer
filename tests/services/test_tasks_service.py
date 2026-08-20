@@ -1,8 +1,10 @@
 from io import BytesIO
+from uuid import uuid4
 
 import pytest
 from celery.exceptions import Retry
 
+from invenio_bulk_importer.errors import ImporterTaskNoReadyError
 from invenio_bulk_importer.proxies import (
     current_importer_records_service as records_service,
 )
@@ -11,7 +13,11 @@ from invenio_bulk_importer.proxies import (
 )
 from invenio_bulk_importer.records.api import ImporterRecord, ImporterTask
 from invenio_bulk_importer.records.models import ImporterRecordModel, ImporterTaskModel
-from invenio_bulk_importer.services.tasks import finalize_importer_task
+from invenio_bulk_importer.services.tasks import (
+    _mark_record_failed,
+    finalize_importer_task,
+    validate_serialized_data,
+)
 
 
 def test_create_importer_task(
@@ -212,7 +218,12 @@ def test_finalize_stops_once_nothing_is_pending(
 def test_finalize_gives_up_after_max_polls(
     app, db, user_admin, task, community, search_clear
 ):
-    """A run that never completes stops being followed, keeping its last status."""
+    """A run that never completes ends on a terminal status, not mid-flight.
+
+    Records still pending this long mean the workers holding them are gone.
+    Leaving the calculated ``validating`` would read as "still working"
+    forever, so the task is marked damaged instead.
+    """
     tasks_service.start_validation(user_admin.identity, task.id)
     pending_id = task._record.get_records()[0]
     pending = records_service.read(user_admin.identity, pending_id)
@@ -230,5 +241,60 @@ def test_finalize_gives_up_after_max_polls(
     )
 
     refreshed = tasks_service.read(user_admin.identity, task.id).data
-    assert refreshed["status"] == "validating"
+    assert refreshed["status"] == "damaged"
     assert refreshed["records_status"]["created"] == 1
+
+
+def test_worker_failure_leaves_the_record_in_a_terminal_state(
+    app, db, user_admin, task, community, search_clear
+):
+    """A record task that raises must not leave its record looking pending.
+
+    The finaliser reads `created` as "still working", so a crashing worker
+    used to keep the whole task being followed until the poll limit.
+    """
+    tasks_service.start_validation(user_admin.identity, task.id)
+    record_id = task._record.get_records()[0]
+    data = records_service.get_current_task_data(
+        records_service.read(user_admin.identity, record_id)._record
+    )
+    data["status"] = "created"
+    records_service.update(user_admin.identity, data=data, id_=record_id)
+
+    # Run the real task against a task id that cannot be resolved, so it
+    # raises where a crashing worker would, rather than calling the helper.
+    with pytest.raises(Exception):
+        validate_serialized_data(record_id_str=record_id, task_id_str=str(uuid4()))
+    ImporterRecord.index.refresh()
+
+    refreshed = records_service.read(user_admin.identity, record_id).data
+    assert refreshed["status"] == "validation failed"
+    assert refreshed["errors"][-1]["type"] == "unexpected_error"
+    assert refreshed["errors"][-1]["loc"] == "validate"
+
+
+def test_marking_a_record_failed_never_raises(app, db, user_admin, search_clear):
+    """Recording a failure runs while an exception is already in flight."""
+    # Nothing must escape, even when the record cannot be found at all.
+    _mark_record_failed(str(uuid4()), "import", RuntimeError("worker died"))
+
+
+def test_cannot_revalidate_while_a_run_is_in_progress(
+    app, db, user_admin, task, community, search_clear
+):
+    """Validating clears the task's records, so it must not run concurrently.
+
+    During an import that would purge records whose workers may already have
+    created repository records, leaving those with no importer trail.
+    """
+    tasks_service.start_validation(user_admin.identity, task.id)
+    for status in ("validating", "importing"):
+        data = tasks_service.get_current_task_data(task._record)
+        data["status"] = status
+        tasks_service.update(user_admin.identity, data=data, id_=task.id)
+
+        with pytest.raises(ImporterTaskNoReadyError):
+            tasks_service.start_validation(user_admin.identity, task.id)
+
+    # The records of the run in progress were left alone.
+    assert len(task._record.get_records()) == 3
