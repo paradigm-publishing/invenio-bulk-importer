@@ -366,3 +366,59 @@ def test_exported_row_reimports_without_losing_metadata(serialized_row):
     assert result["access"]["files"] == "restricted"
     assert result["access"]["embargo"]["until"] == "2131-01-01"
     assert result["custom_fields"]["imprint:imprint"]["isbn"] == "978-3-16-148410-0"
+
+
+AFFILIATION_SHAPES = [
+    # (affiliations on the record, what must come back after the round trip)
+    ([{"name": "A"}, {"name": "B"}], [{"name": "A"}, {"name": "B"}]),
+    ([{"id": "x"}, {"id": "y"}], [{"id": "x"}, {"id": "y"}]),
+    (
+        [{"name": "A"}, {"id": "x", "name": "B"}],
+        [{"name": "A"}, {"id": "x", "name": "B"}],
+    ),
+    (
+        [{"id": "x", "name": "A"}, {"name": "B"}],
+        [{"id": "x", "name": "A"}, {"name": "B"}],
+    ),
+    # A null id must not shift the entries that follow it.
+    (
+        [{"id": None, "name": "A"}, {"id": "x", "name": "B"}],
+        [{"name": "A"}, {"id": "x", "name": "B"}],
+    ),
+]
+
+
+def _single_creator_row(row):
+    """Keep only the first creator, so one set of affiliations lines up."""
+    return {
+        key: (value.split("\n")[0] if key.startswith("creators.") else value)
+        for key, value in row.items()
+    }
+
+
+@pytest.mark.parametrize("affiliations, expected", AFFILIATION_SHAPES)
+def test_affiliations_keep_their_pairing_through_a_round_trip(
+    running_app, csv_rdm_record, affiliations, expected
+):
+    """Affiliations must come back paired as they went out.
+
+    The two columns are written independently and either is dropped when it
+    holds nothing, so the pairing rests on the surviving column keeping an
+    empty slot for every entry it does not describe. Nothing else covers
+    that, and tidying away those empty slots would silently reorder
+    affiliations rather than fail.
+    """
+    exported = CSVRDMRecordExportSerializer()._preprocess_metadata(
+        {"creators": [{"person_or_org": {"name": "P"}, "affiliations": affiliations}]}
+    )["creators"][0]
+
+    row = _single_creator_row(csv_rdm_record)
+    row["creators.affiliations.id"] = exported.get("affiliations.id", "")
+    row["creators.affiliations.name"] = exported.get("affiliations.name", "")
+    # The importer is fed a real CSV row, where empty cells are dropped.
+    row = {key: value for key, value in row.items() if value != ""}
+
+    result, errors = CSVRDMRecordSerializer().transform(row)
+
+    assert errors is None
+    assert result["metadata"]["creators"][0]["affiliations"] == expected

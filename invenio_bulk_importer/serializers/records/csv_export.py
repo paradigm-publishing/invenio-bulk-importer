@@ -170,8 +170,8 @@ class CSVRDMRecordExportSerializer(CSVSerializer):
                 if affiliations := c.get("affiliations"):
                     # One column per part, ";"-separated, positionally paired
                     # the way the importer reads them back.
-                    aff_ids = [a.get("id", "") for a in affiliations]
-                    aff_names = [a.get("name", "") for a in affiliations]
+                    aff_ids = [a.get("id") or "" for a in affiliations]
+                    aff_names = [a.get("name") or "" for a in affiliations]
                     if any(aff_ids):
                         flatten_creator["affiliations.id"] = ";".join(aff_ids)
                     if any(aff_names):
