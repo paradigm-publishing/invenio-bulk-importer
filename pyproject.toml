@@ -49,6 +49,11 @@ urls = {Repository = "https://github.com/ubiquitypress/invenio-bulk-importer"}
 
 [project.optional-dependencies]
 tests = [
+  # FIXME: remove once invenio-cache stops using the lowercase CACHE_TYPE
+  # names that flask-caching 2.5.0 removed. It declares flask-caching>=1.8.0
+  # with no upper bound, and docker-services-cli exports CACHE_TYPE=redis,
+  # so app setup fails on every Python where 2.5.0 is installable (>=3.11).
+  "flask-caching<2.5.0",
   "invenio-app>=2.0.0,<3.0.0",
   "invenio-db[postgresql,mysql]>=2.0.0,<3.0.0",
   "moto[s3]>=5.0.0,<6.0.0",
