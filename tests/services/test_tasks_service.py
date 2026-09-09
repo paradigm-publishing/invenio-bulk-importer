@@ -83,6 +83,11 @@ def test_starting_validation(app, db, user_admin, task, community, search_clear)
     )
     assert len(record_model_instances) == 3
 
+    # A CSV row is a group of one, so every record is its own group.
+    groups = ImporterTask.pid.resolve(task.id).get_record_groups()
+    assert len(groups) == 3
+    assert all(len(members) == 1 for members in groups.values())
+
     ImporterTask.index.refresh()
     ImporterRecord.index.refresh()
 

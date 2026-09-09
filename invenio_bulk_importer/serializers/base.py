@@ -10,7 +10,34 @@
 
 import csv
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import IO, Iterator
+
+
+@dataclass
+class GroupEntry:
+    """One record's worth of source data, plus its place in its group.
+
+    A group is the set of records that have to be imported together, so that
+    identifiers can be resolved between them. Formats that describe a single
+    record per entry produce groups of one, which is why every field but
+    ``data`` has a default.
+    """
+
+    data: dict
+    """The source data for one record, as it came out of the file."""
+
+    key: str | None = None
+    """Identifies the entry within its group, for siblings to refer to."""
+
+    role: str | None = None
+    """``parent``, ``child``, or ``None`` for a group of one."""
+
+    position: int = 0
+    """Order of the entry within its group."""
+
+    relations: list[dict] = field(default_factory=list)
+    """Links to siblings, resolved once every record in the group has a PID."""
 
 
 class Serializer(ABC):
@@ -22,6 +49,19 @@ class Serializer(ABC):
 
         :param stream: IO
         """
+
+    def load_groups(self, stream: IO, **kwargs) -> Iterator[list[GroupEntry]]:
+        """Load the stream group by group.
+
+        The records of a group are imported together. By default every object
+        is its own group, which is what formats describing one record per entry
+        need; override this to yield real groups.
+
+        :param stream: IO
+        :return: An iterator of groups, each a list of entries.
+        """
+        for obj in self.load(stream, **kwargs):
+            yield [GroupEntry(data=obj)]
 
     @abstractmethod
     def transform(self, obj: dict) -> tuple[dict | None, list[dict] | None]:

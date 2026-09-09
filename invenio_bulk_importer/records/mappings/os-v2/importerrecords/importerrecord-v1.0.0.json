@@ -57,6 +57,22 @@
         "generated_record_id": {
           "type": "keyword"
         },
+        "group_id": {
+          "type": "keyword"
+        },
+        "group_key": {
+          "type": "keyword"
+        },
+        "group_role": {
+          "type": "keyword"
+        },
+        "group_position": {
+          "type": "integer"
+        },
+        "group_relations": {
+          "type": "object",
+          "enabled": false
+        },
         "errors": {
           "type": "nested",
           "properties": {

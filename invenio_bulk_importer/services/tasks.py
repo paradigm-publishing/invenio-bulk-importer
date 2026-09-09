@@ -53,6 +53,11 @@ DEFAULT_IMPORER_RECORD_DICT = dict(
     src_data=None,
     serializer_data=None,
     transformed_data=None,
+    group_id=None,
+    group_key=None,
+    group_role=None,
+    group_position=0,
+    group_relations=[],
 )
 """Default importer record dictionary schema."""
 
@@ -267,20 +272,30 @@ def valid_importer_file_data(task_id_str: str):
         task, _, serializer = _get_importer_task_classes(task_id_str)
         # Get Metadata File
         metadata_file = tasks_service.read_metadata_file(system_identity, task.id)
-        # Validate entries from the metadata file
-        for serializer_record_data in serializer.load(metadata_file.get_stream("r")):
-            importer_record_dict = deepcopy(DEFAULT_IMPORER_RECORD_DICT)
-            importer_record_dict["src_data"] = serializer_record_data
-            # Create Basic Importer Record
-            importer_record = records_service.create(
-                system_identity,
-                data=importer_record_dict,
-                task_id=task.id,
-            )
-            validate_serialized_data.delay(
-                record_id_str=str(importer_record.id),
-                task_id_str=task_id_str,
-            )
+        # Validate entries from the metadata file, a group at a time. A group of
+        # one -- all a one-record-per-entry format such as CSV ever yields --
+        # is left without a group id, and `get_record_groups()` falls back to
+        # the record's own id for it.
+        for group in serializer.load_groups(metadata_file.get_stream("r")):
+            group_id = str(uuid.uuid4()) if len(group) > 1 else None
+            for entry in group:
+                importer_record_dict = deepcopy(DEFAULT_IMPORER_RECORD_DICT)
+                importer_record_dict["src_data"] = entry.data
+                importer_record_dict["group_id"] = group_id
+                importer_record_dict["group_key"] = entry.key
+                importer_record_dict["group_role"] = entry.role
+                importer_record_dict["group_position"] = entry.position
+                importer_record_dict["group_relations"] = entry.relations
+                # Create Basic Importer Record
+                importer_record = records_service.create(
+                    system_identity,
+                    data=importer_record_dict,
+                    task_id=task.id,
+                )
+                validate_serialized_data.delay(
+                    record_id_str=str(importer_record.id),
+                    task_id_str=task_id_str,
+                )
         # Follow the run, refreshing the task status until every record is done.
         finalize_importer_task.delay(task_id_str, phase=VALIDATE_PHASE)
     except Exception as e:

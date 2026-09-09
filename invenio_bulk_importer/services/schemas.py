@@ -206,6 +206,27 @@ class ImporterRecordSchema(InvenioBaseRecordSchema):
         allow_none=True,
         description="Generated record ID after successful import.",
     )
+    group_id = ma.fields.String(
+        allow_none=True,
+        description="Shared by the records that have to be imported together.",
+    )
+    group_key = ma.fields.String(
+        allow_none=True,
+        description="Identifies the record within its group, for siblings to refer to.",
+    )
+    group_role = ma.fields.String(
+        allow_none=True,
+        description="Role of the record within its group, e.g. parent or child.",
+    )
+    group_position = ma.fields.Integer(
+        allow_none=True,
+        description="Order of the record within its group.",
+    )
+    group_relations = ma.fields.List(
+        ma.fields.Dict(),
+        allow_none=True,
+        description="Links to sibling records, resolved when the group is imported.",
+    )
     errors = ma.fields.List(
         ma.fields.Nested(ImportErrorSchema),
     )

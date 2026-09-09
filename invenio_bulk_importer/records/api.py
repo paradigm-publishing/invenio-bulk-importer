@@ -27,7 +27,7 @@ from invenio_records_resources.records.api import (
 )
 from invenio_records_resources.records.systemfields import FilesField, IndexField
 from invenio_users_resources.records.api import UserAggregate
-from sqlalchemy import func
+from sqlalchemy import String, cast, func
 from sqlalchemy.exc import NoResultFound, StatementError
 
 from .models import ImporterRecordModel, ImporterTaskFileModel, ImporterTaskModel
@@ -160,6 +160,38 @@ class ImporterTask(Record):
             record_model_class.is_deleted.is_(False),
         )
         return [str(id) for (id,) in query.all()]
+
+    def get_record_groups(self) -> dict[str, list[str]]:
+        """Get the importer record ids of this task, grouped for import.
+
+        The records of a group are imported together, so that identifiers can
+        be resolved between them. A record with no ``group_id`` forms a group
+        of its own: the missing value is replaced by the record id, because SQL
+        would otherwise collapse every one of them into a single group.
+
+        :return: Mapping of group id to the record ids it holds, in group
+            order.
+        """
+        record_model_class = self.child_record_model_cls
+        group_id = func.coalesce(
+            record_model_class.json["group_id"].as_string(),
+            cast(record_model_class.id, String),
+        )
+        query = (
+            db.session.query(record_model_class.id, group_id.label("group_id"))
+            .filter(
+                record_model_class.task_id == str(self.id),
+                record_model_class.is_deleted.is_(False),
+            )
+            .order_by(
+                group_id,
+                record_model_class.json["group_position"].as_integer(),
+            )
+        )
+        groups: dict[str, list[str]] = {}
+        for record_id, group in query.all():
+            groups.setdefault(group, []).append(str(record_id))
+        return groups
 
 
 class ImporterRecord(Record):
