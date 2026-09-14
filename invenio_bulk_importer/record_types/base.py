@@ -49,12 +49,20 @@ class RecordType(ABC):
         self.is_successful = True
 
     @abstractmethod
-    def validate(self) -> bool:
-        """Load the stream object by object."""
+    def validate(self, mode: str = "import") -> bool:
+        """Check the serialized record could be loaded into Invenio.
+
+        :param mode: Either ``import`` or ``delete``.
+        :return: Whether the record passed every check.
+        """
 
     @abstractmethod
-    def run(self) -> dict:
-        """Transform a given object into something Invenio understands."""
+    def run(self, mode: str = "import") -> dict:
+        """Create, update or delete the record this describes.
+
+        :param mode: Either ``import`` or ``delete``.
+        :return: The resulting record, or ``None`` when the run did not finish.
+        """
 
     @property
     def errors(self) -> list[dict]:

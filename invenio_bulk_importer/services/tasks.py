@@ -385,7 +385,9 @@ def valid_importer_file_data(task_id_str: str):
         # one (all a one-record-per-entry format such as CSV ever yields) is
         # left without a group id, and `get_record_groups()` falls back to the
         # record's own id for it.
-        for group in serializer.load_groups(metadata_file.get_stream("r")):
+        for group in serializer.load_groups(
+            metadata_file.get_stream(serializer.stream_mode)
+        ):
             group_id = str(uuid.uuid4()) if len(group) > 1 else None
             for entry in group:
                 importer_record_dict = deepcopy(DEFAULT_IMPORTER_RECORD_DICT)

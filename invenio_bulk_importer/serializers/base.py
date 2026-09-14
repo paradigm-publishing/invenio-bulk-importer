@@ -52,6 +52,14 @@ class GroupEntry:
 class Serializer(ABC):
     """Base serializer class."""
 
+    stream_mode: str = "r"
+    """Mode the task opens the metadata file in before handing it over.
+
+    Text for the line-based formats. A serializer parsing bytes (XML, whose
+    declared encoding cannot be honoured once the bytes have already been
+    decoded) sets ``"rb"``.
+    """
+
     @abstractmethod
     def load(self, stream: IO, **kwargs) -> Iterator[dict]:
         """Load the stream object by object.
@@ -76,8 +84,15 @@ class Serializer(ABC):
             yield [GroupEntry(data=obj)]
 
     @abstractmethod
-    def transform(self, obj: dict) -> tuple[dict | None, list[dict] | None]:
-        """Transform a given object into dict Invenio understands."""
+    def transform(
+        self, obj: dict, mode: str = "import"
+    ) -> tuple[dict | None, list[dict] | None]:
+        """Transform a given object into dict Invenio understands.
+
+        :param obj: One record's source data, as produced by :meth:`load`.
+        :param mode: Either ``import`` or ``delete``.
+        :return: The record payload and the errors found building it.
+        """
 
 
 class CSVSerializer(Serializer):
