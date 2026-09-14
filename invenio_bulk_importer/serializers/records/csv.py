@@ -8,10 +8,8 @@
 
 """CSV serializer for RDM records."""
 
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Optional
 
-from flask import current_app
-from invenio_base.utils import obj_or_import_string
 from invenio_records_resources.proxies import current_service_registry
 from invenio_records_resources.tasks import system_identity
 from pydantic import (
@@ -25,12 +23,25 @@ from pydantic import (
 )
 
 from invenio_bulk_importer.serializers.base import CSVSerializer
+from invenio_bulk_importer.serializers.records.models import (
+    BaseIdentifier,
+    Contributor,
+    Creator,
+    Date,
+    FullIdentifier,
+    Funding,
+    Location,
+    load_configured_custom_fields,
+)
 from invenio_bulk_importer.serializers.records.utils import (
     generate_error_messages,
     process_grouped_fields,
     process_grouped_fields_via_column_title,
     strip_string_values,
 )
+
+CSV_CUSTOM_FIELDS_KEY = "csv_rdm_record_serializer"
+"""Key the CSV serializer's entries sit under in ``BULK_IMPORTER_CUSTOM_FIELDS``."""
 
 
 def ensure_new_line_list(value: str) -> list:
@@ -46,133 +57,6 @@ def ensure_new_line_list(value: str) -> list:
 NewlineList = Annotated[
     list[str], BeforeValidator(ensure_new_line_list), Field(default_factory=list)
 ]
-
-
-class Geometry(BaseModel):
-    """Schema for geometry location."""
-
-    type: str
-    coordinates: list[str]
-
-
-class LocationFeature(BaseModel):
-    """Schema for location feature."""
-
-    description: str
-    geometry: Geometry
-    place: str
-
-
-class Location(BaseModel):
-    """Schema for locations."""
-
-    features: list[LocationFeature] = Field(default_factory=list)
-
-
-class BaseIdentifier(BaseModel):
-    """Schema for identifiers."""
-
-    scheme: str | None = Field(default=None)
-    identifier: str | None = Field(default=None)
-
-
-class FullIdentifier(BaseIdentifier):
-    """Schema for full identifiers."""
-
-    resource_type: dict[str, str | None] = Field(default_factory=dict)
-    relation_type: dict[str, str | None] = Field(default_factory=dict)
-
-
-class Role(BaseModel):
-    """Schema for role."""
-
-    id: str
-
-
-class Affiliation(BaseModel):
-    """Schema for affiliation."""
-
-    id: str | None = Field(default=None)
-    name: str | None = Field(default=None)
-
-    @model_validator(mode="after")
-    def _require_id_or_name(self) -> "Affiliation":
-        if not self.id and not self.name:
-            raise ValueError("Affiliation requires either 'id' or 'name'.")
-        return self
-
-
-class PersonOrOrg(BaseModel):
-    """Schema for person or organization."""
-
-    family_name: str | None = Field(default=None)
-    given_name: str | None = Field(default=None)
-    name: str | None = Field(default=None)
-    type: Literal["personal", "organizational"]
-    identifiers: list[BaseIdentifier] = Field(default_factory=list)
-
-
-class Creator(BaseModel):
-    """Schema for creator."""
-
-    person_or_org: PersonOrOrg
-    affiliations: list[Affiliation] = Field(default_factory=list)
-    role: Role | None = Field(default=None)
-
-
-class Contributor(BaseModel):
-    """Schema for contributor."""
-
-    person_or_org: PersonOrOrg
-    affiliations: list[Affiliation] = Field(default_factory=list)
-    role: Role
-
-
-class Date(BaseModel):
-    """Schema for dates."""
-
-    date: str
-    type: dict[str, str]
-    description: str | None = Field(default=None)
-
-
-class Funder(BaseModel):
-    """Funder schema."""
-
-    id: str | None = Field(default=None)
-    name: str | None = Field(default=None)
-
-    @model_validator(mode="after")
-    def _require_id_or_name(self) -> "Funder":
-        if not self.id and not self.name:
-            raise ValueError("Funder requires either 'id' or 'name'.")
-        return self
-
-
-class Award(BaseModel):
-    """Award schema."""
-
-    id: str | None = Field(default=None)
-    number: str | None = Field(default=None)
-    title: dict[str, str] | None = Field(default=None)
-    acronym: str | None = Field(default=None)
-    program: str | None = Field(default=None)
-    identifiers: list[BaseIdentifier] | None = Field(default=None)
-
-    @model_validator(mode="after")
-    def _require_id_or_number_or_title(self) -> "Award":
-        if not self.id and not (self.number or self.title):
-            raise ValueError(
-                "Award requires either 'id' or either 'number' or 'title'."
-            )
-        return self
-
-
-class Funding(BaseModel):
-    """Schema for funding."""
-
-    funder: Funder
-    award: Award | None = Field(default=None)
 
 
 class MetadataSchema(BaseModel):
@@ -510,6 +394,11 @@ class CSVRecordSchema(BaseModel):
     @model_validator(mode="before")
     def validate_complex_metadata(cls, values):
         """Validate and transform complex metadata fields."""
+        # First, on the untouched row: transformers read the raw CSV columns,
+        # before anything below adds keys of its own.
+        values["custom_fields"] = load_configured_custom_fields(
+            CSV_CUSTOM_FIELDS_KEY, values
+        )
         access = {
             "record": values.get("access.record", "public"),
             "files": values.get("access.files", "public"),
@@ -526,21 +415,6 @@ class CSVRecordSchema(BaseModel):
             }
         values["access"] = access
         values["metadata"] = MetadataSchema(**values)
-        return values
-
-    @model_validator(mode="before")
-    def load_custom_fields(cls, values):
-        """Load custom fields from config."""
-        custom_fields = dict()
-        config = current_app.config.get("BULK_IMPORTER_CUSTOM_FIELDS", {}).get(
-            "csv_rdm_record_serializer", []
-        )
-        for t in config:
-            result = obj_or_import_string(t["transformer"])(values)
-            # only add to custom fields if the transformer returns a value
-            if result:
-                custom_fields[t["field"]] = result
-        values["custom_fields"] = custom_fields
         return values
 
 

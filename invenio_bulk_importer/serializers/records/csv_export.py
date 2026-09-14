@@ -32,6 +32,7 @@ from flask import current_app
 from flask_resources.serializers import CSVSerializer
 from invenio_base.utils import obj_or_import_string
 
+from .csv import CSV_CUSTOM_FIELDS_KEY
 from .utils import flatten_grouped_fields_to_column_title
 
 
@@ -250,7 +251,7 @@ class CSVRDMRecordExportSerializer(CSVSerializer):
         look_up = {
             d["field"]: d
             for d in current_app.config["BULK_IMPORTER_CUSTOM_FIELDS"].get(
-                "csv_rdm_record_serializer", []
+                CSV_CUSTOM_FIELDS_KEY, []
             )
         }
 
