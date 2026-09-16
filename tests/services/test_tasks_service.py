@@ -1,4 +1,6 @@
+from copy import deepcopy
 from io import BytesIO
+from unittest import mock
 from uuid import uuid4
 
 import pytest
@@ -13,9 +15,12 @@ from invenio_bulk_importer.proxies import (
 )
 from invenio_bulk_importer.records.api import ImporterRecord, ImporterTask
 from invenio_bulk_importer.records.models import ImporterRecordModel, ImporterTaskModel
+from invenio_bulk_importer.serializers.records.csv import CSVRDMRecordSerializer
 from invenio_bulk_importer.services.tasks import (
     _mark_record_failed,
     finalize_importer_task,
+    run_transformed_records,
+    valid_importer_file_data,
     validate_serialized_data,
 )
 
@@ -298,3 +303,86 @@ def test_cannot_revalidate_while_a_run_is_in_progress(
 
     # The records of the run in progress were left alone.
     assert len(task._record.get_records()) == 3
+
+
+class UnreadableCSVSerializer(CSVRDMRecordSerializer):
+    """CSV serializer whose file breaks off after its first row."""
+
+    def load(self, stream, **kwargs):
+        """Yield the first row, then fail as a truncated file would.
+
+        :param stream: IO
+        """
+        rows = super().load(stream, **kwargs)
+        yield next(rows)
+        raise ValueError("unreadable metadata file")
+
+
+def test_unreadable_metadata_file_marks_the_task_damaged(
+    app,
+    db,
+    user_admin,
+    task,
+    community,
+    set_app_config_fn_scoped,
+    caplog,
+    search_clear,
+):
+    """A file that fails part-way ends the run damaged, not stuck validating.
+
+    Left on ``validating``, the task could never be validated again, since
+    starting a validation is refused while one looks to be running.
+    """
+    record_types = deepcopy(app.config["BULK_IMPORTER_RECORD_TYPES"])
+    record_types["record"]["serializers"]["csv"] = UnreadableCSVSerializer
+    set_app_config_fn_scoped({"BULK_IMPORTER_RECORD_TYPES": record_types})
+    data = tasks_service.get_current_task_data(task._record)
+    data["status"] = "validating"
+    tasks_service.update(user_admin.identity, data=data, id_=task.id)
+
+    with pytest.raises(ValueError):
+        valid_importer_file_data(task_id_str=str(task.id))
+
+    refreshed = tasks_service.read(user_admin.identity, task.id).data
+    assert refreshed["status"] == "damaged"
+    assert "could not be read to the end" in caplog.text
+
+
+def test_damaged_task_can_be_validated_again(
+    app, db, user_admin, task, community, search_clear
+):
+    """A damaged task is not running, so validating it again is allowed."""
+    tasks_service.start_validation(user_admin.identity, task.id)
+    data = tasks_service.get_current_task_data(task._record)
+    data["status"] = "damaged"
+    tasks_service.update(user_admin.identity, data=data, id_=task.id)
+
+    # The result item is built before the unit of work commits, so it shows
+    # the status the run just moved into.
+    result = tasks_service.start_validation(user_admin.identity, task.id)
+
+    assert result.data["status"] == "validating"
+    assert len(task._record.get_records()) == 3
+
+
+def test_failed_import_start_does_not_leave_the_task_importing(
+    app, db, user_admin, task, community, search_clear
+):
+    """An import that fails to start is followed, so its status settles.
+
+    With no record queued, the run settles straight back on the status its
+    records give, rather than staying on ``importing`` for good.
+    """
+    tasks_service.start_validation(user_admin.identity, task.id)
+    data = tasks_service.get_current_task_data(task._record)
+    data["status"] = "importing"
+    tasks_service.update(user_admin.identity, data=data, id_=task.id)
+
+    with mock.patch.object(
+        ImporterTask, "get_records", side_effect=RuntimeError("database gone")
+    ):
+        with pytest.raises(RuntimeError):
+            run_transformed_records(task_id_str=str(task.id))
+
+    refreshed = tasks_service.read(user_admin.identity, task.id).data
+    assert refreshed["status"] == "validated with failures"

@@ -83,16 +83,15 @@ def _get_importer_task_classes(task_id_str: str):
     return task, record_type_cls, serializer_cls()
 
 
-def _abandon_importer_task(task_id_str: str, phase: str) -> None:
-    """Mark a task damaged after its records stopped making progress.
+def _abandon_importer_task(task_id_str: str, reason: str) -> None:
+    """Mark a task damaged when its run ended without finishing.
 
-    Reached only when records are still pending long past any reasonable run
-    time, which means the workers holding them are gone. The calculated
-    status would say ``validating`` or ``importing``, so it is overridden
-    here: the run is over, and it did not finish.
+    Otherwise the task keeps the status its run started with, ``validating``
+    or ``importing``, which reads as "still working" and blocks starting it
+    again. ``damaged`` is terminal, so the task can be validated anew.
 
     :param task_id_str: Importer task id.
-    :param phase: Either ``validate`` or ``import``.
+    :param reason: Why the run did not finish, for the log.
     """
     try:
         task, _, _ = _get_importer_task_classes(task_id_str)
@@ -102,11 +101,7 @@ def _abandon_importer_task(task_id_str: str, phase: str) -> None:
         # The reason only goes to the log: the task schema has no message
         # field, and its mapping is strict.
         current_app.logger.warning(
-            "Importer task %s marked damaged: records were still pending in "
-            "the %s run after %s checks, so the workers holding them are gone.",
-            task_id_str,
-            phase,
-            current_app.config["BULK_IMPORTER_FINALIZE_MAX_POLLS"],
+            "Importer task %s marked damaged: %s", task_id_str, reason
         )
     except Exception:
         current_app.logger.exception(
@@ -148,6 +143,23 @@ def _mark_record_failed(record_id_str: str, phase: str, exc: Exception) -> None:
         # exception is the one worth surfacing.
         current_app.logger.exception(
             "Could not record the failure of importer record %s.", record_id_str
+        )
+
+
+def _follow_after_failure(task_id_str: str, phase: str) -> None:
+    """Schedule the finaliser for a run that failed part-way.
+
+    Best effort by design: it runs while an exception is already in flight,
+    and must not replace it with one of its own.
+
+    :param task_id_str: Importer task id.
+    :param phase: Either ``validate`` or ``import``.
+    """
+    try:
+        finalize_importer_task.delay(task_id_str, phase=phase)
+    except Exception:
+        current_app.logger.exception(
+            "Could not follow the %s run of importer task %s.", phase, task_id_str
         )
 
 
@@ -201,7 +213,11 @@ def run_transformed_records(task_id_str: str):
         current_app.logger.exception(
             "Error starting the import of task %s.", task_id_str
         )
-        # Handle error appropriately, e.g., log it or update task status
+        # Records already queued may still be importing, so the task must not
+        # be ended here. Following the run lets them finish: with nothing
+        # queued it settles back on `validated`, and otherwise the records
+        # never queued keep it pending until it is marked damaged.
+        _follow_after_failure(task_id_str, IMPORT_PHASE)
         raise
 
 
@@ -285,7 +301,12 @@ def valid_importer_file_data(task_id_str: str):
         current_app.logger.exception(
             "Error reading the metadata file of task %s.", task_id_str
         )
-        # Handle error appropriately, e.g., log it or update task status
+        # The file was not read to the end, so the records created so far do
+        # not describe it. Validating again clears them, which `damaged`
+        # allows and `validating` does not.
+        _abandon_importer_task(
+            task_id_str, "its metadata file could not be read to the end."
+        )
         raise
 
 
@@ -337,4 +358,9 @@ def finalize_importer_task(self, task_id_str: str, phase: str = VALIDATE_PHASE):
         # Records are still pending well past any reasonable run time, so the
         # workers holding them are gone. Leaving the calculated status would
         # read as "still working" forever, so end on a terminal one instead.
-        _abandon_importer_task(task_id_str, phase)
+        _abandon_importer_task(
+            task_id_str,
+            f"records were still pending in the {phase} run after "
+            f"{current_app.config['BULK_IMPORTER_FINALIZE_MAX_POLLS']} checks, "
+            "so the workers holding them are gone.",
+        )
