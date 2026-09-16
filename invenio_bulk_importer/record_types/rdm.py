@@ -9,6 +9,7 @@
 """Rdm specific record resources."""
 
 from flask import current_app
+from invenio_accounts.proxies import current_datastore
 from invenio_db import db
 from invenio_rdm_records.proxies import current_rdm_records_service
 from invenio_records_resources.services.uow import UnitOfWork
@@ -138,6 +139,7 @@ class RDMRecord(
             self._verify_communities_exist(self._serializer_communities)
             self._validate_permissions(self._serializer_record_data)
             self._verify_rdm_record_correctness(self._serializer_record_data)
+            self._verify_restricted_access_groups(self._serializer_record_data)
             self._verify_pre_commit_correctness(self._record)
         elif mode == "delete":
             self._record = self._serializer_record_data
@@ -207,6 +209,9 @@ class RDMRecord(
             )
             current_app.logger.exception("Error creating a new record.")
             raise
+        self._grant_restricted_access(
+            record_item, importer_record["transformed_data"], uow
+        )
         self._add_files_to_record(self._importer_record, record_item, uow)
         self._publish_record(record_item, uow)
         return record_item
@@ -281,6 +286,7 @@ class RDMRecord(
                 data=data,
                 uow=uow,
             )
+            self._grant_restricted_access(record_item, data, uow)
             current_rdm_records_service.publish(
                 system_identity,
                 record_item.id,
@@ -314,6 +320,7 @@ class RDMRecord(
                 data=data,
                 uow=uow,
             )
+            self._grant_restricted_access(record_item, data, uow)
             # Add files to the draft.
             self._add_files_to_record(importer_record, record_item, uow)
             # Publish the new version. even if in a community.
@@ -445,6 +452,94 @@ class RDMRecord(
                 )
                 current_app.logger.exception("Error publishing record.")
                 raise
+
+    @staticmethod
+    def _restricted_access_groups() -> list[str]:
+        """Read the groups given access to every restricted record.
+
+        :return: Group ids, without repeats, empty when the setting is unset.
+        """
+        groups = current_app.config.get("BULK_IMPORTER_RESTRICTED_ACCESS_GROUPS")
+        return list(dict.fromkeys(groups or []))
+
+    @staticmethod
+    def _is_restricted(record_data: dict | None) -> bool:
+        """Tell whether a record's metadata or its files are restricted.
+
+        :param record_data: A record payload carrying ``access``.
+        :return: Whether either is restricted.
+        """
+        access = (record_data or {}).get("access") or {}
+        return "restricted" in (access.get("record"), access.get("files"))
+
+    def _verify_restricted_access_groups(self, record_data: dict | None) -> None:
+        """Check the configured groups can be given access to this record.
+
+        Only a restricted record gets the groups, so only then are they checked.
+        A group has to exist.
+
+        :param record_data: The record payload.
+        """
+        if not self._is_restricted(record_data):
+            return
+        for group_id in self._restricted_access_groups():
+            role = current_datastore.find_role_by_id(group_id)
+            if role is None:
+                self._add_error(
+                    dict(
+                        type="access_group_not_found",
+                        loc="access",
+                        msg=f"Group '{group_id}' does not exist, so it cannot be "
+                        "given access to this restricted record.",
+                    )
+                )
+
+    def _grant_restricted_access(self, record_item, record_data: dict, uow) -> None:
+        """Give the configured groups view access to a restricted record.
+
+        Grants belong to the record's parent, which all its versions share. A
+        group already granted access, by an earlier import, is skipped: the
+        access service refuses to grant the same group twice.
+
+        :param record_item: The draft the grants are added to.
+        :param record_data: The record payload, for its access.
+        :param uow: The unit of work of the import.
+        """
+        groups = self._restricted_access_groups()
+        if not groups or not self._is_restricted(record_data):
+            return
+        access_service = current_rdm_records_service.access
+        _, parent = access_service.get_parent_and_record_or_draft(record_item.id)
+        granted = {
+            grant.subject_id
+            for grant in parent.access.grants
+            if grant.subject_type == access_service.group_subject_type
+        }
+        missing = [group for group in groups if group not in granted]
+        if not missing:
+            return
+        grants = [
+            {
+                "subject": {"type": access_service.group_subject_type, "id": group},
+                "permission": "view",
+            }
+            for group in missing
+        ]
+        try:
+            access_service.bulk_create_grants(
+                system_identity, record_item.id, {"grants": grants}, uow=uow
+            )
+        except Exception as e:
+            self._add_error(
+                dict(
+                    type="access_grant_error",
+                    loc="access",
+                    msg=f"Error giving groups {missing} access to record "
+                    f"'{record_item.id}': {str(e)}",
+                )
+            )
+            current_app.logger.exception("Error granting groups access.")
+            raise
 
     def _publish_record(self, record_item, uow):
         """Publish the record in community or globally."""

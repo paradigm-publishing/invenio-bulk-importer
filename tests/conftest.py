@@ -59,6 +59,7 @@ from invenio_bulk_importer.proxies import (
 from invenio_bulk_importer.record_types.rdm import RDMRecord
 from invenio_bulk_importer.records.api import ImporterRecord, ImporterTask
 from invenio_bulk_importer.serializers.records.csv import CSVRDMRecordSerializer
+from invenio_bulk_importer.serializers.records.onix3 import ONIX3RDMRecordSerializer
 
 from .fake_datacite_client import FakeDataCiteClient
 from .fake_storage import (
@@ -204,7 +205,10 @@ def app_config(app_config, mock_datacite_client):
                 "doi_minting": False,
                 "publish": True,
             },
-            "serializers": {"csv": CSVRDMRecordSerializer},
+            "serializers": {
+                "csv": CSVRDMRecordSerializer,
+                "onix3": ONIX3RDMRecordSerializer,
+            },
         }
     }
     records_index = LocalProxy(

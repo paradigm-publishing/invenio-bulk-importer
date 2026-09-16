@@ -35,3 +35,14 @@ Shared helpers for parsing grouped and discriminator columns.
 
 .. automodule:: invenio_bulk_importer.serializers.records.utils
    :members:
+
+
+ONIX 3.0 serializer
+-------------------
+
+Defaults for :py:data:`~invenio_bulk_importer.config.BULK_IMPORTER_ONIX3_SERIALIZER`.
+Import them from ``invenio_bulk_importer.serializers.records.onix3``.
+
+.. autodata:: invenio_bulk_importer.serializers.records.onix3.schema.DEFAULT_SETTINGS
+
+.. autodata:: invenio_bulk_importer.serializers.records.onix3.codes.DEFAULT_CONTRIBUTOR_ROLES

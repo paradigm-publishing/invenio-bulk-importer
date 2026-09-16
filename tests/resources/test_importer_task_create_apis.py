@@ -29,7 +29,7 @@ def test_importer_task_with_create(
     # Get Record Type config.
     with admin_client.get("/importer-tasks/config/record") as response:
         expected = {
-            "serializers": ["csv"],
+            "serializers": ["csv", "onix3"],
             "options": {"doi_minting": False, "publish": True},
         }
         assert response.status_code == 200

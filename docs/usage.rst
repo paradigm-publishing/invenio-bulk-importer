@@ -10,10 +10,14 @@ Usage
 =====
 
 Invenio-Bulk-Importer ingests records into an Invenio-RDM instance from a
-tabular source file. The reference format is **CSV**; one row in the file
-produces one record in RDM. This page documents the column naming
-conventions that the CSV reader understands — both to help authors write
-valid import files, and to record why the format looks the way it does.
+source file. Two formats are supported:
+
+* **CSV**: one row in the file produces one record in RDM. Most of this page
+  documents the column naming conventions the CSV reader understands, both to
+  help authors write valid import files and to record why the format looks the
+  way it does.
+* **ONIX 3.0**: one book in the file produces a record for the book *and* one
+  for each of its chapters, linked to each other. See `ONIX 3.0 format`_.
 
 Transformers that feed additional fields into ``metadata.custom_fields`` are
 configured separately; see :doc:`configuration`.
@@ -408,6 +412,171 @@ tickets can be tracked against concrete sections.
   currently document the mechanism in :doc:`configuration` and only
   mention the columns here in passing. Whether custom-field conventions
   (including the preferred pattern) belong in this page is open.
+
+
+ONIX 3.0 format
+---------------
+
+The ``onix3`` serializer reads the aggregated ONIX 3.0 message produced by the
+publisher-delivery preprocessor. That message is a narrow, predictable dialect
+of ONIX rather than arbitrary publisher ONIX:
+
+* an ``<ONIXMessage release="3.0">`` in the
+  ``http://ns.editeur.org/onix/3.0/reference`` namespace, using reference tags
+  (never short tags);
+* one ``<Product>`` per book, its chapters as
+  ``<ContentDetail>/<ContentItem>``;
+* every file a ``gs://`` link in ``<SupportingResource>``, with its filename
+  and size alongside.
+
+Files outside that shape are rejected with a message saying what was found,
+rather than silently importing nothing. Create the task with
+``serializer = onix3`` and ``mode = import``.
+
+Records and groups
+~~~~~~~~~~~~~~~~~~
+
+Each ``<Product>`` becomes a **group**: a ``publication-book`` record followed
+by one ``publication-book-chapter`` record per content item, front matter
+included. A group is imported together, so the book and its chapters succeed
+or fail as a unit. A book with no content items is a group of one and imports
+like a CSV row.
+
+A chapter is transformed on its own, long after the file was read, so its
+source data carries what it inherits from its book: publisher, publication
+date, languages, licence and the book's authors.
+
+Linking books and chapters
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The book gets one ``haspart`` related identifier per chapter, and each chapter
+one ``ispartof`` back to its book. Both are written by **DOI**, which the
+preprocessor supplies for books and chapters alike, so the links survive
+DataCite export.
+
+The two directions degrade independently: the book links to a chapter through
+the *chapter's* DOI, and a chapter to its book through the *book's*. Where the
+DOI at the other end is missing, the link cannot be written yet; its intent is
+recorded in the importer record's ``group_relations`` for the group import to
+resolve once every record of the group has a PID.
+
+Field mapping
+~~~~~~~~~~~~~
+
+Values are mapped at transform time, not when the file is read, so correcting
+a lookup table and re-validating picks the change up without uploading the
+file again.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 30 30
+
+   * - ONIX
+     - Book record
+     - Chapter record
+   * - ``ProductIdentifier`` type 06 / ``TextItemIdentifier`` type 06
+     - ``pids.doi`` (provider ``external``)
+     - ``pids.doi`` (provider ``external``)
+   * - ``ProductIdentifier`` type 15 (ISBN-13)
+     - ``metadata.identifiers[]`` and imprint ``isbn``
+     - imprint ``isbn`` (the book's)
+   * - ``TitleText`` / ``Subtitle``
+     - ``metadata.title`` / ``additional_titles[]`` (``subtitle``)
+     - ``metadata.title``; imprint ``title`` is the book's
+   * - ``Contributor``
+     - ``creators[]`` / ``contributors[]`` by role
+     - ``creators[]``, falling back to the book's
+   * - ``PublishingDate`` role 01
+     - ``metadata.publication_date`` as EDTF
+     - inherited
+   * - ``PublisherName``, ``LanguageCode``
+     - ``metadata.publisher``, ``metadata.languages[]``
+     - inherited
+   * - ``TextContent`` type 03
+     - ``metadata.description``
+     - ``metadata.description`` (the abstract)
+   * - ``TextContent`` types 06 and 12
+     - ``additional_descriptions[]`` (``other``)
+     -
+   * - ``Subject`` scheme 20
+     - ``metadata.subjects[]``, free text
+     - ``metadata.subjects[]``, free text
+   * - ``Extent`` type 05 / ``NumberOfPages``
+     - ``metadata.sizes[]``
+     - ``metadata.sizes[]``
+   * - ``PageRun``
+     -
+     - imprint ``pages``
+   * - ``Collection``, ``EditionStatement``
+     - imprint ``series_name``, ``volume``, ``edition``
+     -
+   * - ``CopyrightStatement``
+     - ``metadata.copyright``
+     -
+   * - ``EpubLicense``
+     - ``metadata.rights[]`` and access (below)
+     - inherited
+
+Contributor roles follow ONIX codelist 17: authors (``A01``, ``A38``) and
+co-authors (``A02``) become creators; editors (``B01``, ``B02``, ``B09``) and
+translators (``B06``) become contributors. A book credited only to editors
+promotes them to creators, since a record needs at least one. Roles with no
+repository equivalent are recorded as contributors with the ``other`` role, so
+a contributor is never dropped.
+
+Access and files
+~~~~~~~~~~~~~~~~
+
+Record metadata is public. Files are public for an openly licensed title
+(one carrying an ``<EpubLicense>``) and restricted otherwise, since the absence
+of that licence is what marks a title as not openly licensed. Both behaviours
+are configurable; see :doc:`configuration`.
+
+Who may see a restricted record is decided by the instance's permission policy.
+On top of that, the groups listed in ``BULK_IMPORTER_RESTRICTED_ACCESS_GROUPS`` are given
+view access to every record whose metadata or files are restricted, for CSV and
+ONIX imports alike; see :doc:`configuration`.
+
+A book record gets its full-content PDF followed by its cover. A chapter
+record gets its own PDF. The MARC record the preprocessor also lists is never
+attached. Only ``gs://`` links are accepted: a ``file://`` link names a path on
+whichever machine wrote the file, which the importer's workers cannot reach.
+
+Errors
+~~~~~~
+
+Besides ordinary validation errors, a record can fail with:
+
+``retracted_title``
+    The title is withdrawn (``PublishingStatus`` 11). Fails the book and its
+    chapters.
+``invalid_file_uri``
+    An attached file is not a ``gs://`` link.
+``file_name_mismatch``
+    A link does not end in the filename ONIX declares for it. The link's last
+    segment becomes the file's name on the record, so a disagreement would
+    store the file under the wrong name.
+``unsupported_mode``
+    The task is in ``delete`` mode, which ONIX imports do not support.
+
+Known gaps
+~~~~~~~~~~
+
+* **Communities.** ONIX carries none, so records carry none. On an instance
+  with ``RDM_COMMUNITY_REQUIRED_TO_PUBLISH`` enabled, every record fails with
+  ``community_not_provided`` until a community is supplied another way.
+* **Licence names.** Creative Commons licence links resolve on their own; any
+  other licence needs an entry in the ``licenses`` setting, or no rights entry
+  is written.
+* **Funding.** The message carries no ``<Funding>``, so ``metadata.funding``
+  stays empty.
+* **Audiences and proprietary subject codes.** Audience values are
+  publisher-specific and are not mapped. Scheme-23 subject codes are dropped
+  unless the ``subject_codes`` setting maps them.
+* **Part titles.** A part grouping several chapters loses its title before the
+  message is written, so it cannot be recovered on import.
+* **Group import.** Until the group import task lands, records are imported one
+  at a time and links recorded in ``group_relations`` are not resolved.
 
 
 Export serialization
