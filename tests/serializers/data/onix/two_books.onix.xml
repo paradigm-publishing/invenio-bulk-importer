@@ -1,0 +1,128 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Hand-written to exercise the degraded paths the real feed does not reach:
+     a product with no <ContentDetail>, a book with no DOI, and a chapter with
+     no <TextItemIdentifier>. Shape follows up.database.writers.onix3
+     (invenio-ubiquity, REPO-3172). -->
+<ONIXMessage xmlns="http://ns.editeur.org/onix/3.0/reference" release="3.0">
+  <Header>
+    <Sender>
+      <SenderName>up-database-preprocess</SenderName>
+    </Sender>
+    <SentDateTime>20260101T0000Z</SentDateTime>
+    <MessageNote>2 book(s)</MessageNote>
+  </Header>
+  <Product>
+    <RecordReference>10.5555/complete-book</RecordReference>
+    <NotificationType>03</NotificationType>
+    <ProductIdentifier>
+      <ProductIDType>15</ProductIDType>
+      <IDValue>9780000000001</IDValue>
+    </ProductIdentifier>
+    <ProductIdentifier>
+      <ProductIDType>06</ProductIDType>
+      <IDValue>10.5555/complete-book</IDValue>
+    </ProductIdentifier>
+    <DescriptiveDetail>
+      <TitleDetail>
+        <TitleType>01</TitleType>
+        <TitleElement>
+          <TitleElementLevel>01</TitleElementLevel>
+          <TitleText>A Book With Chapters</TitleText>
+        </TitleElement>
+      </TitleDetail>
+      <Contributor>
+        <SequenceNumber>1</SequenceNumber>
+        <ContributorRole>A01</ContributorRole>
+        <PersonName>Ada Lovelace</PersonName>
+        <NamesBeforeKey>Ada</NamesBeforeKey>
+        <KeyNames>Lovelace</KeyNames>
+      </Contributor>
+      <Language>
+        <LanguageRole>01</LanguageRole>
+        <LanguageCode>eng</LanguageCode>
+      </Language>
+    </DescriptiveDetail>
+    <ContentDetail>
+      <ContentItem>
+        <LevelSequenceNumber>1</LevelSequenceNumber>
+        <TextItem>
+          <TextItemType>03</TextItemType>
+          <TextItemIdentifier>
+            <TextItemIDType>06</TextItemIDType>
+            <IDValue>10.5555/complete-book-001</IDValue>
+          </TextItemIdentifier>
+        </TextItem>
+        <TitleDetail>
+          <TitleType>01</TitleType>
+          <TitleElement>
+            <TitleElementLevel>01</TitleElementLevel>
+            <TitleText>Chapter With A DOI</TitleText>
+          </TitleElement>
+        </TitleDetail>
+      </ContentItem>
+      <ContentItem>
+        <LevelSequenceNumber>2</LevelSequenceNumber>
+        <TextItem>
+          <TextItemType>03</TextItemType>
+        </TextItem>
+        <TitleDetail>
+          <TitleType>01</TitleType>
+          <TitleElement>
+            <TitleElementLevel>01</TitleElementLevel>
+            <TitleText>Chapter Without A DOI</TitleText>
+          </TitleElement>
+        </TitleDetail>
+      </ContentItem>
+    </ContentDetail>
+    <PublishingDetail>
+      <Publisher>
+        <PublishingRole>01</PublishingRole>
+        <PublisherName>Test Press</PublisherName>
+      </Publisher>
+      <PublishingStatus>04</PublishingStatus>
+      <PublishingDate>
+        <PublishingDateRole>01</PublishingDateRole>
+        <Date dateformat="00">20200115</Date>
+      </PublishingDate>
+    </PublishingDetail>
+  </Product>
+  <Product>
+    <RecordReference>9780000000002</RecordReference>
+    <NotificationType>03</NotificationType>
+    <ProductIdentifier>
+      <ProductIDType>15</ProductIDType>
+      <IDValue>9780000000002</IDValue>
+    </ProductIdentifier>
+    <DescriptiveDetail>
+      <TitleDetail>
+        <TitleType>01</TitleType>
+        <TitleElement>
+          <TitleElementLevel>01</TitleElementLevel>
+          <TitleText>A Book Without Chapters Or A DOI</TitleText>
+        </TitleElement>
+      </TitleDetail>
+      <Contributor>
+        <SequenceNumber>1</SequenceNumber>
+        <ContributorRole>B01</ContributorRole>
+        <PersonName>Grace Hopper</PersonName>
+        <NamesBeforeKey>Grace</NamesBeforeKey>
+        <KeyNames>Hopper</KeyNames>
+      </Contributor>
+      <Language>
+        <LanguageRole>01</LanguageRole>
+        <LanguageCode>eng</LanguageCode>
+      </Language>
+    </DescriptiveDetail>
+    <PublishingDetail>
+      <Publisher>
+        <PublishingRole>01</PublishingRole>
+        <PublisherName>Test Press</PublisherName>
+      </Publisher>
+      <PublishingStatus>04</PublishingStatus>
+      <PublishingDate>
+        <PublishingDateRole>01</PublishingDateRole>
+        <Date dateformat="00">20210620</Date>
+      </PublishingDate>
+    </PublishingDetail>
+  </Product>
+</ONIXMessage>

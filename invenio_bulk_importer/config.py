@@ -12,6 +12,7 @@ from invenio_i18n import lazy_gettext as _
 
 from invenio_bulk_importer.record_types.rdm import RDMRecord
 from invenio_bulk_importer.serializers.records.csv import CSVRDMRecordSerializer
+from invenio_bulk_importer.serializers.records.onix3 import ONIX3RDMRecordSerializer
 
 BULK_IMPORTER_DEFAULT_VALUE = "foobar"
 """Default value for the application."""
@@ -82,10 +83,52 @@ BULK_IMPORTER_RECORD_TYPES = {
             "doi_minting": False,
             "publish": True,
         },
-        "serializers": {"csv": CSVRDMRecordSerializer},
+        "serializers": {
+            "csv": CSVRDMRecordSerializer,
+            "onix3": ONIX3RDMRecordSerializer,
+        },
     }
 }
 """List of options and serializers to be used by the importer."""
+
+BULK_IMPORTER_ONIX3_SERIALIZER = {}
+"""Settings for the ONIX 3.0 serializer.
+
+Left empty here: the defaults live with the serializer, in
+:py:data:`~invenio_bulk_importer.serializers.records.onix3.schema.DEFAULT_SETTINGS`.
+Each top-level key set here replaces its default whole, so copy the defaults in
+and change what you need rather than listing only the keys you care about.
+
+The one exception is ``contributor_roles``, which is merged per code over the
+built-in reading of ONIX codelist 17 in
+:py:data:`~invenio_bulk_importer.serializers.records.onix3.codes.DEFAULT_CONTRIBUTOR_ROLES`:
+list only the codes to add or change. A code mapped nowhere is kept as a
+contributor with the ``other`` role.
+
+The keys:
+
+:``access``: Access given to every record.
+:``use_license_for_access``: When on, an openly licensed title, one ONIX gives
+    an ``<EpubLicense>``, gets public files whatever ``access`` says.
+:``contributor_roles``: ONIX codelist-17 codes mapped to ``[list, role id]``,
+    where ``list`` is ``creators`` or ``contributors``.
+:``licenses``: Licence names or links mapped to repository licence ids.
+    Creative Commons links resolve without an entry.
+:``subject_codes``: Proprietary subject codes mapped to subject terms.
+    Unmapped codes are dropped.
+:``imprint_field``: Custom field the imprint is written to; ``None`` writes
+    none.
+
+Example::
+
+    from invenio_bulk_importer.serializers.records.onix3 import DEFAULT_SETTINGS
+
+    BULK_IMPORTER_ONIX3_SERIALIZER = {
+        **DEFAULT_SETTINGS,
+        "use_license_for_access": False,
+        "licenses": {"Publisher Open Licence": "cc-by-4.0"},
+    }
+"""
 
 
 #
