@@ -534,6 +534,11 @@ Record metadata is public. Files are public for an openly licensed title
 of that licence is what marks a title as not openly licensed. Both behaviours
 are configurable; see :doc:`configuration`.
 
+Who may see a restricted record is decided by the instance's permission policy.
+On top of that, the groups listed in ``BULK_IMPORTER_RESTRICTED_ACCESS_GROUPS`` are given
+view access to every record whose metadata or files are restricted, for CSV and
+ONIX imports alike; see :doc:`configuration`.
+
 A book record gets its full-content PDF followed by its cover. A chapter
 record gets its own PDF. The MARC record the preprocessor also lists is never
 attached. Only ``gs://`` links are accepted: a ``file://`` link names a path on
@@ -562,9 +567,6 @@ Known gaps
 * **Communities.** ONIX carries none, so records carry none. On an instance
   with ``RDM_COMMUNITY_REQUIRED_TO_PUBLISH`` enabled, every record fails with
   ``community_not_provided`` until a community is supplied another way.
-* **Access grants.** Which users or groups may see restricted files is not set
-  by the import: grants belong to a record's parent and are applied through the
-  access service, not the record payload.
 * **Licence names.** Creative Commons licence links resolve on their own; any
   other licence needs an entry in the ``licenses`` setting, or no rights entry
   is written.

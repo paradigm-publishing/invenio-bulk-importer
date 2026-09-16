@@ -76,6 +76,7 @@ def sibling_links(src: dict) -> tuple[list[dict], list[dict]]:
         the group import.
     """
     if src.get("type") == "book":
+        # A book links to each of its chapters.
         candidates = [
             _link(
                 chapter["key"],
@@ -86,10 +87,11 @@ def sibling_links(src: dict) -> tuple[list[dict], list[dict]]:
             for chapter in src.get("chapters", [])
         ]
     else:
+        # A chapter links back to the book it came from, and to nothing else.
         book = src.get("book") or {}
         candidates = [
             _link(BOOK_KEY, book.get("doi"), RELATION_IS_PART_OF, RESOURCE_TYPE_BOOK)
         ]
     resolved = [link for link, _ in candidates if link]
-    pending = [intent for _, intent in candidates if intent]
-    return resolved, pending
+    pending_group_import = [intent for _, intent in candidates if intent]
+    return resolved, pending_group_import

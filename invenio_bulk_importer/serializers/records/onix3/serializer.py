@@ -20,7 +20,7 @@ from pydantic import ValidationError
 
 from ...base import GroupEntry, Serializer
 from ..utils import generate_error_messages
-from .codes import FILE_ROLE_CONTENT, FILE_ROLE_COVER
+from .codes import FILE_ROLE_CONTENT, FILE_ROLE_COVER, PUBLISHING_STATUS_WITHDRAWN
 from .linking import BOOK_KEY, sibling_links
 from .reader import check_filenames, iter_products, parse_product
 from .schema import (
@@ -36,8 +36,6 @@ ALLOWED_FILE_SCHEMES = ("gs://",)
 The preprocessor can emit ``file://`` links for local runs; those name paths on
 whichever machine wrote the file, which the importer's workers cannot reach.
 """
-
-WITHDRAWN = "11"
 
 ATTACHED_ROLES = {
     "book": (FILE_ROLE_CONTENT, FILE_ROLE_COVER),
@@ -110,7 +108,7 @@ class ONIX3RDMRecordSerializer(Serializer):
             if obj.get("type") == "book"
             else (obj.get("book") or {}).get("publishing_status")
         )
-        if status == WITHDRAWN:
+        if status == PUBLISHING_STATUS_WITHDRAWN:
             errors.append(
                 dict(
                     type="retracted_title",

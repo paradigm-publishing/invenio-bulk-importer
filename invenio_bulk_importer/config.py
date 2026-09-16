@@ -131,6 +131,26 @@ Example::
 """
 
 
+BULK_IMPORTER_RESTRICTED_ACCESS_GROUPS = []
+"""Groups given view access to every restricted record the importer writes.
+
+A record counts as restricted when its metadata or its files are. Each group
+listed here gets a ``view`` grant on such a record, letting its members see the
+record and its files, whatever format it was imported from. Empty, the default,
+grants nothing.
+
+Name each group by its id, which for a group created within Invenio is also
+its name. The Validate step rejects a group that does not exist.
+
+Grants belong to a record's parent, which all its versions share. A group that
+already has a grant from an earlier import is not granted again, and grants are
+left in place when an update makes a record public.
+
+Example::
+
+    BULK_IMPORTER_RESTRICTED_ACCESS_GROUPS = ["editors", "reviewers"]
+"""
+
 #
 # Importer tasks Search configuration
 #
