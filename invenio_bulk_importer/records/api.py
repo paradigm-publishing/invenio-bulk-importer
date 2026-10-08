@@ -165,30 +165,32 @@ class ImporterTask(Record):
         """Get the importer record ids of this task, grouped for import.
 
         The records of a group are imported together, so that identifiers can
-        be resolved between them. A record with no ``group_id`` forms a group
-        of its own: the missing value is replaced by the record id, because SQL
-        would otherwise collapse every one of them into a single group.
+        be resolved between them. A record with no ``group_id``, or an empty
+        one, forms a group of its own, keyed ``record:<record id>``: grouping
+        on the missing value itself would collapse every one of them into a
+        single group, and the prefix keeps such a key from matching a group id
+        a serializer chose.
 
         Records are ordered by their position in the group. Nothing requires
         positions to be unique, so records sharing one fall back to the order
         of their ids, keeping the result the same from one call to the next.
 
-        :return: Mapping of group id to the record ids it holds, in group
+        :return: Mapping of group key to the record ids it holds, in group
             order.
         """
         record_model_class = self.child_record_model_cls
-        group_id = func.coalesce(
-            record_model_class.json["group_id"].as_string(),
-            cast(record_model_class.id, String),
+        group_key = func.coalesce(
+            func.nullif(record_model_class.json["group_id"].as_string(), ""),
+            func.concat("record:", cast(record_model_class.id, String)),
         )
         query = (
-            db.session.query(record_model_class.id, group_id.label("group_id"))
+            db.session.query(record_model_class.id, group_key.label("group_key"))
             .filter(
                 record_model_class.task_id == str(self.id),
                 record_model_class.is_deleted.is_(False),
             )
             .order_by(
-                group_id,
+                group_key,
                 record_model_class.json["group_position"].as_integer(),
                 record_model_class.id,
             )

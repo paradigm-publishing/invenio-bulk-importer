@@ -33,8 +33,8 @@ def test_record_groups_without_group_id_stay_separate(
     groups = ImporterTask.pid.resolve(task.id).get_record_groups()
 
     assert len(groups) == 2
-    assert groups[str(first.id)] == [str(first.id)]
-    assert groups[str(second.id)] == [str(second.id)]
+    assert groups[f"record:{first.id}"] == [str(first.id)]
+    assert groups[f"record:{second.id}"] == [str(second.id)]
 
 
 def test_record_groups_collects_members_in_position_order(
@@ -86,7 +86,7 @@ def test_record_groups_ignores_deleted_records(
 
     groups = ImporterTask.pid.resolve(task.id).get_record_groups()
 
-    assert groups == {str(kept.id): [str(kept.id)]}
+    assert groups == {f"record:{kept.id}": [str(kept.id)]}
 
 
 def test_record_groups_orders_equal_positions_by_id(
@@ -110,3 +110,38 @@ def test_record_groups_orders_equal_positions_by_id(
 
     assert task_record.get_record_groups() == {"group-1": expected}
     assert task_record.get_record_groups() == {"group-1": expected}
+
+
+def test_record_groups_treat_an_empty_group_id_as_none(
+    app, db, user_admin, task, minimal_importer_record, location, search_clear
+):
+    """An empty group id groups no better than a missing one."""
+    first = _create(user_admin.identity, task, minimal_importer_record, group_id="")
+    second = _create(user_admin.identity, task, minimal_importer_record, group_id="")
+
+    groups = ImporterTask.pid.resolve(task.id).get_record_groups()
+
+    assert groups == {
+        f"record:{first.id}": [str(first.id)],
+        f"record:{second.id}": [str(second.id)],
+    }
+
+
+def test_record_group_key_cannot_collide_with_a_record_id(
+    app, db, user_admin, task, minimal_importer_record, location, search_clear
+):
+    """A group named after another record's id does not swallow that record."""
+    ungrouped = _create(user_admin.identity, task, minimal_importer_record)
+    named_after_it = _create(
+        user_admin.identity,
+        task,
+        minimal_importer_record,
+        group_id=str(ungrouped.id),
+    )
+
+    groups = ImporterTask.pid.resolve(task.id).get_record_groups()
+
+    assert groups == {
+        f"record:{ungrouped.id}": [str(ungrouped.id)],
+        str(ungrouped.id): [str(named_after_it.id)],
+    }
