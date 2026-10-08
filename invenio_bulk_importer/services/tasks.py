@@ -45,7 +45,7 @@ FAILED_RECORD_STATES = {
 """State to leave a record in when its task raises, per phase."""
 
 
-DEFAULT_IMPORER_RECORD_DICT = dict(
+DEFAULT_IMPORTER_RECORD_DICT = dict(
     status=ImporterRecordState.CREATED.value,
     errors=[],
     message=None,
@@ -277,7 +277,7 @@ def valid_importer_file_data(task_id_str: str):
         for group in serializer.load_groups(metadata_file.get_stream("r")):
             group_id = str(uuid.uuid4()) if len(group) > 1 else None
             for entry in group:
-                importer_record_dict = deepcopy(DEFAULT_IMPORER_RECORD_DICT)
+                importer_record_dict = deepcopy(DEFAULT_IMPORTER_RECORD_DICT)
                 importer_record_dict["src_data"] = entry.data
                 importer_record_dict["group_id"] = group_id
                 importer_record_dict["group_key"] = entry.key
