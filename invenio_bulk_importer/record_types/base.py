@@ -438,53 +438,57 @@ class InvenioRecordMixin:
             # Create the record and the model so we can checkpre-commit validations for relations
             record = RDMDraft(data, model=RDMDraft.model_cls(id=record_id, data=data))
             # Run pre create extensions
-            for e in RDMDraft._extensions:
+            # The exception is named apart from the extension on purpose:
+            # catching it as `e` used to overwrite the loop variable, and
+            # Python deletes that name when the except block ends, so the next
+            # call on the extension raised `NameError` instead.
+            for extension in RDMDraft._extensions:
                 # This requires to get all systemfields in api record schema.
                 # So we can get the MultiRelationsField which holds a RelationsMapping that  has a list of fields
                 # We will validate each, if we use the MultiRelationsField.pre_commit() it will excpetion on the first failure
                 # instead of running through all the fields.
                 try:
-                    e.pre_create(record)
-                except Exception as e:
+                    extension.pre_create(record)
+                except Exception as error:
                     self._add_error(
                         dict(
                             type="pre_create_validation_error",
                             loc="record",
-                            msg=str(e),
+                            msg=str(error),
                         )
                     )
                 try:
-                    e.post_create(record)
-                except Exception as e:
+                    extension.post_create(record)
+                except Exception as error:
                     self._add_error(
                         dict(
                             type="post_create_validation_error",
                             loc="record",
-                            msg=str(e),
+                            msg=str(error),
                         )
                     )
-                if "relations" in e.declared_fields:
-                    field = e.declared_fields["relations"]
+                if "relations" in extension.declared_fields:
+                    field = extension.declared_fields["relations"]
                     mapping = field.obj(record)
                     for name in mapping._fields:
                         try:
                             getattr(mapping, name).validate()
-                        except Exception as e:
+                        except Exception as error:
                             self._add_error(
                                 dict(
                                     type="pre_commit_validation_error",
                                     loc=f"relations.{name}",
-                                    msg=str(e),
+                                    msg=str(error),
                                 )
                             )
                 else:
                     try:
-                        e.pre_commit(record)
-                    except Exception as e:
+                        extension.pre_commit(record)
+                    except Exception as error:
                         self._add_error(
                             dict(
                                 type="pre_commit_validation_error",
                                 loc="record",
-                                msg=str(e),
+                                msg=str(error),
                             )
                         )

@@ -1,4 +1,8 @@
 from copy import deepcopy
+from unittest import mock
+
+from invenio_rdm_records.records import RDMDraft
+from invenio_records.extensions import ExtensionMixin
 
 from tests.fake_storage import (
     GS_CONTENT,
@@ -591,3 +595,41 @@ def test_record_verification_no_record_or_draft_exists(rdm_record_instance):
             msg="Record 'non-existing-id' not found.",
         ),
     ]
+
+
+class _FailingExtension(ExtensionMixin):
+    """Stand-in record extension whose pre-create hook fails.
+
+    Every other hook comes from the mixin as a no-op, so the extension can
+    stand in for a real one while a record is built and validated.
+    """
+
+    declared_fields = {}
+
+    def pre_create(self, record):
+        """Fail the way a misbehaving extension would.
+
+        :param record: The draft being validated.
+        """
+        raise ValueError("extension exploded")
+
+
+def test_pre_commit_validation_reports_a_failing_extension(
+    rdm_record_instance, community
+):
+    """An extension that raises is reported, and the run carries on.
+
+    The exception used to be caught into the loop variable holding the
+    extension. Python deletes that name when the except block ends, so the
+    next call on the extension raised ``NameError`` and escaped the check,
+    losing every error it had collected.
+    """
+    with mock.patch.object(RDMDraft, "_extensions", [_FailingExtension()]):
+        rdm_record_instance.validate(mode="import")
+
+    assert rdm_record_instance.is_successful is False
+    assert {
+        "type": "pre_create_validation_error",
+        "loc": "record",
+        "msg": "extension exploded",
+    } in rdm_record_instance.errors
