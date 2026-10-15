@@ -9,6 +9,7 @@
 """Base resource."""
 
 from abc import ABC, abstractmethod
+from functools import cache
 from urllib.parse import urlparse
 
 import boto3
@@ -16,6 +17,7 @@ import requests
 from botocore import UNSIGNED
 from botocore.client import Config
 from flask import current_app
+from google.auth.exceptions import DefaultCredentialsError
 from google.cloud import storage
 from invenio_communities.proxies import current_communities
 from invenio_db import db
@@ -27,6 +29,28 @@ from invenio_records_resources.tasks import system_identity
 
 from ..proxies import current_importer_tasks_service as tasks_service
 from .uow import rollabck_unit_of_work
+
+
+@cache
+def gcs_client() -> storage.Client:
+    """Return a GCS client authenticated with the available credentials.
+
+    Uses Application Default Credentials (a service account key, workload
+    identity, or ``gcloud auth application-default login``), so private
+    buckets the importer has been granted access to can be read. Falls back to
+    an anonymous client, which only reads publicly readable buckets, when no
+    credentials are configured.
+
+    The project is left unset: reading objects does not need one, and inferring
+    it would fail for credentials that do not carry a project.
+
+    Cached per process, so credentials are resolved once rather than for every
+    file checked or downloaded.
+    """
+    try:
+        return storage.Client(project=None)
+    except DefaultCredentialsError:
+        return storage.Client.create_anonymous_client()
 
 
 class RecordType(ABC):
@@ -240,7 +264,7 @@ class FileMixin:
             bucket_name = parsed_url.netloc
             blob_name = parsed_url.path.lstrip("/")
 
-            storage_client = storage.Client.create_anonymous_client()
+            storage_client = gcs_client()
             bucket = storage_client.bucket(bucket_name)
             blob = bucket.blob(blob_name)
             if not blob.exists():
@@ -338,7 +362,7 @@ class FileMixin:
         bucket_name = parsed_url.netloc
         blob_name = parsed_url.path.lstrip("/")
 
-        storage_client = storage.Client.create_anonymous_client()
+        storage_client = gcs_client()
         bucket = storage_client.bucket(bucket_name)
         blob = bucket.blob(blob_name)
 

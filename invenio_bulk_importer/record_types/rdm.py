@@ -8,6 +8,8 @@
 
 """Rdm specific record resources."""
 
+from contextlib import closing
+
 from flask import current_app
 from invenio_accounts.proxies import current_datastore
 from invenio_db import db
@@ -375,14 +377,17 @@ class RDMRecord(
         for file in files:
             file_key = file["key"]
             try:
-                file_service.set_file_content(
-                    system_identity,
-                    record_item.id,
-                    file_key,
-                    self._get_stream_for_file_content(file),
-                    file["size"],
-                    uow=uow,
-                )
+                # Closed once read, so a batch does not hold every download's
+                # connection open until the worker exits.
+                with closing(self._get_stream_for_file_content(file)) as stream:
+                    file_service.set_file_content(
+                        system_identity,
+                        record_item.id,
+                        file_key,
+                        stream,
+                        file["size"],
+                        uow=uow,
+                    )
                 # Commit the file to the record
                 file_service.commit_file(
                     system_identity, record_item.id, file_key, uow=uow

@@ -544,6 +544,12 @@ record gets its own PDF. The MARC record the preprocessor also lists is never
 attached. Only ``gs://`` links are accepted: a ``file://`` link names a path on
 whichever machine wrote the file, which the importer's workers cannot reach.
 
+``gs://`` files are read with the Application Default Credentials available to
+the importer (a service account, workload identity, or
+``gcloud auth application-default login``), so private buckets work once that
+identity can read them. Without credentials the importer reads anonymously,
+which only works for publicly readable buckets.
+
 Errors
 ~~~~~~
 

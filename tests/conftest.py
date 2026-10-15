@@ -18,7 +18,6 @@ import idutils
 import pytest
 import responses
 from flask_principal import AnonymousIdentity
-from google.cloud import storage
 from invenio_access.models import ActionRoles
 from invenio_access.permissions import any_user as any_user_need
 from invenio_access.permissions import superuser_access, system_identity
@@ -56,6 +55,7 @@ from werkzeug.local import LocalProxy
 from invenio_bulk_importer.proxies import (
     current_importer_tasks_service as importer_tasks_service,
 )
+from invenio_bulk_importer.record_types import base as record_types_base
 from invenio_bulk_importer.record_types.rdm import RDMRecord
 from invenio_bulk_importer.records.api import ImporterRecord, ImporterTask
 from invenio_bulk_importer.serializers.records.csv import CSVRDMRecordSerializer
@@ -109,11 +109,7 @@ def fake_file_origins():
         monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
         monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
         monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
-        monkeypatch.setattr(
-            storage.Client,
-            "create_anonymous_client",
-            staticmethod(lambda: FakeGCSClient()),
-        )
+        monkeypatch.setattr(record_types_base, "gcs_client", FakeGCSClient)
         with mock_aws():
             s3 = boto3.client("s3", region_name="us-east-1")
             s3.create_bucket(Bucket=S3_BUCKET)
