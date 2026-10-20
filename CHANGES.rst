@@ -8,6 +8,10 @@
 Changes
 =======
 
+Version 0.1.1 (released 2026-10-20)
+
+- ci: fix PyPI publish workflow.
+
 Version 0.1.0 (released 2026-10-20)
 
 - Initial public release.
