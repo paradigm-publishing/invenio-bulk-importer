@@ -8,6 +8,10 @@
 Changes
 =======
 
+Version 0.1.2 (released 2026-10-20)
+
+- ci: publish with PyPI trusted publishing.
+
 Version 0.1.1 (released 2026-10-20)
 
 - ci: fix PyPI publish workflow.
