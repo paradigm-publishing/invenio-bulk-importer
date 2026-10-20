@@ -39,6 +39,12 @@ def test_add_files_closes_stream_after_upload(app):
     stream = BytesIO(b"pdf")
     file_service = mock.Mock()
 
+    def read_content(identity, record_id, key, content, size, uow=None):
+        assert not content.closed
+        assert content.read() == b"pdf"
+
+    file_service.set_file_content.side_effect = read_content
+
     _add_files(file_service, stream)
 
     file_service.set_file_content.assert_called_once()
