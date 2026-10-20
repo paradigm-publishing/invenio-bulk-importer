@@ -32,6 +32,20 @@ from .uow import rollabck_unit_of_work
 
 
 @cache
+def _authenticated_gcs_client() -> storage.Client:
+    """Return a GCS client authenticated with Application Default Credentials.
+
+    The project is left unset: reading objects does not need one, and inferring
+    it would fail for credentials that do not carry a project.
+
+    Cached per process, so credentials are resolved once rather than for every
+    file checked or downloaded. A failed lookup raises, so it is not cached.
+
+    :raises DefaultCredentialsError: When no credentials can be resolved.
+    """
+    return storage.Client(project=None)
+
+
 def gcs_client() -> storage.Client:
     """Return a GCS client authenticated with the available credentials.
 
@@ -41,15 +55,17 @@ def gcs_client() -> storage.Client:
     an anonymous client, which only reads publicly readable buckets, when no
     credentials are configured.
 
-    The project is left unset: reading objects does not need one, and inferring
-    it would fail for credentials that do not carry a project.
-
-    Cached per process, so credentials are resolved once rather than for every
-    file checked or downloaded.
+    Only the authenticated client is cached. Credentials that are briefly
+    unavailable, such as workload identity while a pod starts, are looked up
+    again on the next call instead of leaving the worker anonymous until it
+    restarts.
     """
     try:
-        return storage.Client(project=None)
+        return _authenticated_gcs_client()
     except DefaultCredentialsError:
+        current_app.logger.warning(
+            "No Google Cloud credentials found, reading GCS files anonymously."
+        )
         return storage.Client.create_anonymous_client()
 
 

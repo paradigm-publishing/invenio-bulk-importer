@@ -548,7 +548,12 @@ whichever machine wrote the file, which the importer's workers cannot reach.
 the importer (a service account, workload identity, or
 ``gcloud auth application-default login``), so private buckets work once that
 identity can read them. Without credentials the importer reads anonymously,
-which only works for publicly readable buckets.
+which only works for publicly readable buckets, and logs a warning.
+
+The importer reads any ``gs://`` link its identity can reach, so an import
+could copy a file from an unrelated bucket into a record. Grant that identity
+``roles/storage.objectViewer`` on the import buckets only, rather than
+project-wide.
 
 Errors
 ~~~~~~
