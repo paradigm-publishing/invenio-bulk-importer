@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 from celery.exceptions import Retry
+from invenio_access.permissions import system_identity
 
 from invenio_bulk_importer.errors import ImporterTaskNoReadyError
 from invenio_bulk_importer.proxies import (
@@ -549,3 +550,8 @@ def test_status_refresh_keeps_a_run_in_progress_running(
 
     refreshed = tasks_service.read(user_admin.identity, task.id).data
     assert refreshed["status"] == "importing"
+
+
+def test_system_can_extract_task_file_metadata(app, db, task):
+    """The post-commit metadata extraction task runs as the system identity."""
+    tasks_service.files.extract_file_metadata(system_identity, task.id, "article.txt")

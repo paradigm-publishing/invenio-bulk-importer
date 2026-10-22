@@ -38,6 +38,7 @@ class ImporterTaskPermissionPolicy(RecordPermissionPolicy):
     can_read_files = [Administration(), SystemProcess()]
     can_update_files = [Administration(), SystemProcess()]
     can_delete_files = [Administration(), SystemProcess()]
+    can_extract_file_metadata = [SystemProcess()]
     can_search_records = [Administration(), SystemProcess()]
 
 
