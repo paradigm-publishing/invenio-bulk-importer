@@ -8,6 +8,13 @@
 Changes
 =======
 
+Version 0.1.3 (released 2026-10-22)
+
+- fix(permissions): allow system file metadata extraction on importer
+  task files.
+- fix(administration): stop loading the generic admin search and details
+  apps.
+
 Version 0.1.2 (released 2026-10-20)
 
 - ci: publish with PyPI trusted publishing.
