@@ -4,7 +4,21 @@
   Invenio App RDM is free software; you can redistribute it and/or modify it
   under the terms of the MIT License; see LICENSE file for more details.
 #}
-{% extends "invenio_administration/details.html" %}
+{#
+  Extends the admin base rather than "invenio_administration/details.html":
+  that template loads the generic details app, which crashes on this view.
+#}
+{%- from "invenio_administration/macros.html" import go_back %}
+
+{% extends admin_base_template %}
+
+{% block page_title %}
+  {{ go_back() }}
+{% endblock page_title %}
+
+{% block admin_page_content %}
+  <div id='invenio-details-config' data-pid='{{ pid | tojson }}'></div>
+{% endblock admin_page_content %}
 
 {% block css %}
   {{ super() }}
@@ -15,4 +29,3 @@
   {{ super() }}
   {{ webpack['invenio-bulk-importer-tasks-admin-details.js'] }}
 {% endblock %}
-
